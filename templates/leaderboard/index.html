@@ -1,0 +1,31 @@
+{% extends "base.html" %}{% load static %}
+{% block title %}Leaderboard — VoiceMarket{% endblock %}
+{% block content %}
+<div class="animate-fade-in">
+  <h1 class="text-2xl font-bold mb-6"><i class="fas fa-trophy mr-2 text-yellow-400"></i>Leaderboard</h1>
+  <div class="flex gap-2 mb-6">
+    <button onclick="loadLB('earnings')" class="lb-tab active px-4 py-2 rounded-xl text-sm font-semibold bg-green-500/10 text-green-400 border border-green-500/20" data-cat="earnings">💰 Earnings</button>
+    <button onclick="loadLB('recordings')" class="lb-tab px-4 py-2 rounded-xl text-sm font-semibold bg-gray-800 text-gray-400" data-cat="recordings">🎙 Recordings</button>
+    <button onclick="loadLB('reputation')" class="lb-tab px-4 py-2 rounded-xl text-sm font-semibold bg-gray-800 text-gray-400" data-cat="reputation">⭐ Reputation</button>
+  </div>
+  <div id="lb-list" class="space-y-2"><div class="text-center py-8 text-gray-600 text-sm">Loading...</div></div>
+</div>
+{% endblock %}
+{% block extra_scripts %}
+<script>
+async function loadLB(cat){
+  document.querySelectorAll('.lb-tab').forEach(b=>{b.className='lb-tab px-4 py-2 rounded-xl text-sm font-semibold bg-gray-800 text-gray-400';});
+  document.querySelector(`.lb-tab[data-cat="${cat}"]`).className='lb-tab active px-4 py-2 rounded-xl text-sm font-semibold bg-green-500/10 text-green-400 border border-green-500/20';
+  try{const r=await apiFetch(`/api/presence/leaderboard/?category=${cat}`,{headers:{}});
+    const d=await r.json();const list=document.getElementById('lb-list');
+    if(d.leaderboard&&d.leaderboard.length){
+      list.innerHTML=d.leaderboard.map((u,i)=>{
+        const medal=i===0?'🥇':i===1?'🥈':i===2?'🥉':` ${i+1}`;
+        return `<div class="card flex items-center justify-between hover:border-green-500/20 transition-colors"><div class="flex items-center gap-4"><span class="text-2xl w-10 text-center">${medal}</span><div class="w-10 h-10 rounded-full bg-gradient-to-br from-green-400 to-emerald-600 flex items-center justify-center text-white font-bold">${u.full_name?u.full_name[0]:''}</div><div><p class="font-semibold">${u.full_name||'User'}</p><p class="text-xs text-gray-500 capitalize">${u.level||'beginner'} · ${u.country||''}</p></div></div><span class="font-bold text-green-400">${u.reputation_score||0}⭐</span></div>`;
+      }).join('');
+    }else list.innerHTML='<div class="text-center py-8 text-gray-600 text-sm">No data yet.</div>';
+  }catch(e){console.error(e);}
+}
+loadLB('earnings');
+</script>
+{% endblock %}

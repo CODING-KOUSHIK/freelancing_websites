@@ -1,0 +1,520 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}My Recordings — VoiceMarket{% endblock %}
+
+{% block extra_head %}
+<style>
+  /* ─── Recordings Library Premium Styles ──────────────────── */
+  .recording-card {
+    background: rgba(17, 24, 39, 0.85);
+    border: 1px solid rgba(55, 65, 81, 0.6);
+    border-radius: 1.25rem;
+    padding: 1.25rem 1.5rem;
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+  }
+  .recording-card::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 3px;
+    border-radius: 2px 0 0 2px;
+    background: transparent;
+    transition: background 0.3s ease;
+  }
+  .recording-card:hover {
+    border-color: rgba(34, 197, 94, 0.25);
+    box-shadow: 0 4px 30px rgba(0,0,0,0.3), 0 0 0 1px rgba(34,197,94,0.05);
+    transform: translateY(-1px);
+  }
+  .recording-card:hover::before { background: #22c55e; }
+  .recording-card.status-completed::before { background: #22c55e; }
+  .recording-card.status-in-progress::before { background: #60a5fa; }
+  .recording-card.status-requested::before { background: #facc15; }
+  .recording-card.status-failed::before { background: #f87171; }
+
+  .badge {
+    display: inline-flex; align-items: center; gap: 0.25rem;
+    padding: 0.2rem 0.65rem; border-radius: 999px; font-size: 0.7rem; font-weight: 600; letter-spacing: 0.03em;
+  }
+  .badge-completed   { background: rgba(34,197,94,0.12);  color: #4ade80;  border: 1px solid rgba(34,197,94,0.2);  }
+  .badge-in_progress { background: rgba(96,165,250,0.12); color: #60a5fa;  border: 1px solid rgba(96,165,250,0.2); }
+  .badge-requested   { background: rgba(250,204,21,0.12); color: #facc15;  border: 1px solid rgba(250,204,21,0.2); }
+  .badge-accepted    { background: rgba(52,211,153,0.12); color: #34d399;  border: 1px solid rgba(52,211,153,0.2); }
+  .badge-rejected    { background: rgba(248,113,113,0.12);color: #f87171;  border: 1px solid rgba(248,113,113,0.2);}
+  .badge-cancelled   { background: rgba(107,114,128,0.12);color: #9ca3af;  border: 1px solid rgba(107,114,128,0.2);}
+  .badge-failed      { background: rgba(248,113,113,0.12);color: #f87171;  border: 1px solid rgba(248,113,113,0.2);}
+  .badge-paused      { background: rgba(251,146,60,0.12); color: #fb923c;  border: 1px solid rgba(251,146,60,0.2); }
+
+  .upload-badge-uploaded { background: rgba(34,197,94,0.1);  color: #4ade80; }
+  .upload-badge-pending  { background: rgba(107,114,128,0.1);color: #9ca3af; }
+  .upload-badge-uploading{ background: rgba(96,165,250,0.1); color: #60a5fa; }
+  .upload-badge-failed   { background: rgba(248,113,113,0.1);color: #f87171;}
+  .upload-badge-retrying { background: rgba(251,146,60,0.1); color: #fb923c; }
+
+  .dl-btn {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    padding: 0.45rem 0.9rem; border-radius: 0.6rem; font-size: 0.75rem; font-weight: 600;
+    transition: all 0.2s ease; cursor: pointer; border: 1px solid transparent; text-decoration: none;
+  }
+  .dl-btn-a    { background: rgba(34,197,94,0.15);  color: #4ade80;  border-color: rgba(34,197,94,0.25);  }
+  .dl-btn-b    { background: rgba(96,165,250,0.15); color: #60a5fa;  border-color: rgba(96,165,250,0.25); }
+  .dl-btn-mixed{ background: rgba(167,139,250,0.15);color: #a78bfa;  border-color: rgba(167,139,250,0.25);}
+  .dl-btn:hover { filter: brightness(1.25); transform: scale(1.04); }
+  .dl-btn:disabled,
+  .dl-btn-disabled {
+    background: rgba(55,65,81,0.3) !important; color: #6b7280 !important;
+    border-color: rgba(55,65,81,0.3) !important; cursor: not-allowed; pointer-events: none;
+    filter: none; transform: none; opacity: 0.55;
+  }
+  .del-btn {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    padding: 0.45rem 0.9rem; border-radius: 0.6rem; font-size: 0.75rem; font-weight: 600;
+    background: rgba(248,113,113,0.1); color: #f87171; border: 1px solid rgba(248,113,113,0.2);
+    transition: all 0.2s ease; cursor: pointer;
+  }
+  .del-btn:hover { background: rgba(248,113,113,0.2); transform: scale(1.04); }
+
+  /* Stats strip */
+  .stats-strip {
+    display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.5rem;
+  }
+  .stat-pill {
+    background: rgba(17,24,39,0.8); border: 1px solid rgba(55,65,81,0.5);
+    border-radius: 999px; padding: 0.4rem 1rem; font-size: 0.8rem; color: #9ca3af;
+    display: flex; align-items: center; gap: 0.4rem;
+  }
+  .stat-pill span { color: #e5e7eb; font-weight: 600; }
+
+  /* Delete modal */
+  #delete-modal { transition: opacity 0.2s ease; }
+  #delete-modal.hidden { opacity: 0; pointer-events: none; }
+
+  /* File size chip */
+  .file-chip {
+    display: inline-flex; align-items: center; gap: 0.25rem;
+    font-size: 0.7rem; color: #6b7280;
+    background: rgba(55,65,81,0.4); border-radius: 0.4rem; padding: 0.15rem 0.45rem;
+  }
+
+  /* Search / filter bar */
+  .filter-btn {
+    padding: 0.4rem 0.85rem; border-radius: 0.6rem; font-size: 0.78rem; font-weight: 600;
+    border: 1px solid rgba(55,65,81,0.5); color: #9ca3af; background: rgba(31,41,55,0.6);
+    cursor: pointer; transition: all 0.2s ease;
+  }
+  .filter-btn.active, .filter-btn:hover {
+    background: rgba(34,197,94,0.15); border-color: rgba(34,197,94,0.3); color: #4ade80;
+  }
+
+  /* Waveform icon animation for in-progress sessions */
+  @keyframes waveform {
+    0%,100% { transform: scaleY(1); }
+    50% { transform: scaleY(1.8); }
+  }
+  .wave-bar { display: inline-block; width: 3px; border-radius: 2px; margin: 0 1px; background: #60a5fa; animation: waveform 0.9s ease-in-out infinite; }
+  .wave-bar:nth-child(2) { animation-delay: 0.15s; }
+  .wave-bar:nth-child(3) { animation-delay: 0.3s; }
+  .wave-bar:nth-child(4) { animation-delay: 0.45s; }
+
+  /* Empty state */
+  .empty-glow {
+    width: 80px; height: 80px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(34,197,94,0.2), transparent 70%);
+    display: flex; align-items: center; justify-content: center; margin: 0 auto 1rem;
+    border: 1px solid rgba(34,197,94,0.15);
+  }
+
+  /* Toast */
+  #toast {
+    position: fixed; bottom: 1.5rem; right: 1.5rem; z-index: 9999;
+    min-width: 240px; max-width: 340px; padding: 0.9rem 1.2rem; border-radius: 0.85rem;
+    font-size: 0.85rem; font-weight: 500; display: flex; align-items: center; gap: 0.6rem;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.5); transition: transform 0.3s ease, opacity 0.3s ease;
+    transform: translateY(100px); opacity: 0;
+  }
+  #toast.show { transform: translateY(0); opacity: 1; }
+  #toast.success { background: rgba(17,24,39,0.95); border: 1px solid rgba(34,197,94,0.4); color: #4ade80; }
+  #toast.error   { background: rgba(17,24,39,0.95); border: 1px solid rgba(248,113,113,0.4);color: #f87171; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="animate-fade-in" id="recordings-library">
+
+  <!-- ─── Page Header ─────────────────────────────────────────── -->
+  <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6 gap-4">
+    <div>
+      <h1 class="text-2xl font-bold flex items-center gap-3">
+        <div class="w-10 h-10 bg-gradient-to-br from-green-400 to-emerald-600 rounded-2xl flex items-center justify-center shadow-lg shadow-green-900/40">
+          <i class="fas fa-folder-open text-white text-sm"></i>
+        </div>
+        Recordings Library
+      </h1>
+      <p class="text-gray-500 text-sm mt-1">Manage, download and organise your voice recording sessions</p>
+    </div>
+    <a href="/dashboard/" class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gray-800 hover:bg-gray-700 text-sm font-medium text-gray-300 transition-colors">
+      <i class="fas fa-home text-xs"></i> Dashboard
+    </a>
+  </div>
+
+  <!-- ─── Stats Strip ─────────────────────────────────────────── -->
+  <div class="stats-strip">
+    <div class="stat-pill"><i class="fas fa-layer-group text-green-400 text-xs"></i> Total: <span id="stat-total">{{ total_sessions }}</span></div>
+    <div class="stat-pill"><i class="fas fa-check-circle text-green-400 text-xs"></i> Completed: <span id="stat-completed">{{ sessions|length }}</span></div>
+    <div class="stat-pill"><i class="fas fa-download text-purple-400 text-xs"></i> Files available: <span id="stat-files">—</span></div>
+    <div class="stat-pill"><i class="fas fa-coins text-yellow-400 text-xs"></i> Total earned: <span id="stat-earned">—</span></div>
+  </div>
+
+  <!-- ─── Filter Bar ───────────────────────────────────────────── -->
+  <div class="flex items-center gap-2 mb-5 flex-wrap">
+    <button class="filter-btn active" onclick="filterSessions('all', this)">All</button>
+    <button class="filter-btn" onclick="filterSessions('completed', this)">Completed</button>
+    <button class="filter-btn" onclick="filterSessions('in_progress', this)">In Progress</button>
+    <button class="filter-btn" onclick="filterSessions('requested', this)">Requested</button>
+    <button class="filter-btn" onclick="filterSessions('has_files', this)">
+      <i class="fas fa-file-audio mr-1"></i>Has Files
+    </button>
+    <div class="ml-auto">
+      <input id="search-sessions" type="text" placeholder="Search by partner name…"
+        class="bg-gray-800 border border-gray-700 rounded-xl px-3 py-1.5 text-sm text-gray-300 placeholder-gray-600 focus:border-green-500 outline-none transition-colors w-52">
+    </div>
+  </div>
+
+  <!-- ─── Session Cards ─────────────────────────────────────────── -->
+  <div id="sessions-container" class="space-y-3">
+
+    {% for item in sessions %}
+    {% with s=item.obj partner=item.partner %}
+    <div class="recording-card status-{{ s.status }}"
+         data-status="{{ s.status }}"
+         data-has-files="{% if item.has_any_file %}true{% else %}false{% endif %}"
+         data-partner="{{ partner.full_name|default:'Unknown'|lower }}"
+         data-earnings="{{ s.earnings_amount }}">
+
+      <!-- Top row: avatar + info + status badges -->
+      <div class="flex items-start gap-4">
+
+        <!-- Avatar -->
+        <div class="flex-shrink-0">
+          {% if partner and partner.profile_photo %}
+            <img src="{{ partner.profile_photo.url }}" class="w-11 h-11 rounded-2xl object-cover ring-2 ring-gray-700">
+          {% else %}
+            <div class="w-11 h-11 rounded-2xl bg-gradient-to-br from-green-400/20 to-emerald-600/20 flex items-center justify-center text-lg font-bold text-green-400 ring-2 ring-gray-800">
+              {{ partner.full_name|first|upper|default:"?" }}
+            </div>
+          {% endif %}
+        </div>
+
+        <!-- Info -->
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-2 flex-wrap">
+            <p class="font-semibold text-gray-100 truncate">
+              {{ partner.full_name|default:"Unknown Partner" }}
+            </p>
+            <!-- Status badge -->
+            <span class="badge badge-{{ s.status }}">
+              {% if s.status == 'in_progress' %}
+                <span class="w-1.5 h-1.5 bg-blue-400 rounded-full animate-pulse"></span>
+              {% elif s.status == 'completed' %}
+                <i class="fas fa-check" style="font-size:0.6rem;"></i>
+              {% elif s.status == 'requested' %}
+                <i class="fas fa-clock" style="font-size:0.6rem;"></i>
+              {% elif s.status == 'failed' %}
+                <i class="fas fa-exclamation" style="font-size:0.6rem;"></i>
+              {% endif %}
+              {{ s.get_status_display }}
+            </span>
+            <!-- Upload status -->
+            <span class="badge upload-badge-{{ s.upload_status }}" style="font-size:0.65rem;">
+              <i class="fas fa-cloud text-current" style="font-size:0.6rem;"></i>
+              {{ s.get_upload_status_display }}
+            </span>
+          </div>
+
+          <!-- Metadata row -->
+          <div class="flex items-center gap-3 mt-1 flex-wrap text-xs text-gray-500">
+            <span><i class="fas fa-calendar mr-1"></i>{{ s.requested_at|date:"M d, Y" }}</span>
+            <span><i class="fas fa-clock mr-1"></i>{{ s.duration_display }}</span>
+            <span><i class="fas fa-microphone mr-1"></i>{{ s.sample_rate }}</span>
+            {% if item.chunk_count > 0 %}
+            <span><i class="fas fa-puzzle-piece mr-1"></i>{{ item.chunk_count }} chunks</span>
+            {% endif %}
+            {% if s.earnings_amount > 0 %}
+            <span class="text-green-400 font-semibold"><i class="fas fa-coins mr-1"></i>₹{{ s.earnings_amount }}</span>
+            {% endif %}
+          </div>
+        </div>
+
+        <!-- Right: session short ID -->
+        <div class="hidden sm:block text-right flex-shrink-0">
+          <p class="font-mono text-xs text-gray-600">{{ s.session_id|stringformat:"s"|truncatechars:13 }}</p>
+          {% if s.drive_link %}
+          <a href="{{ s.drive_link }}" target="_blank" class="text-xs text-blue-400 hover:text-blue-300 transition-colors mt-1 block">
+            <i class="fab fa-google-drive mr-1"></i>Drive
+          </a>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- File availability row -->
+      <div class="mt-4 pt-3 border-t border-gray-800/70">
+        <div class="flex items-center justify-between flex-wrap gap-3">
+
+          <!-- Download buttons (conditional on file existence) -->
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="text-xs text-gray-600 mr-1 font-medium uppercase tracking-wider">Download:</span>
+
+            <!-- Channel A -->
+            {% if item.file_a and item.file_a.exists %}
+              <a href="/api/recordings/{{ s.session_id }}/download/?channel=a"
+                 class="dl-btn dl-btn-a" title="Channel A — {{ item.file_a.size_mb }} MB">
+                <i class="fas fa-download text-xs"></i> Ch.A
+                <span class="file-chip">{{ item.file_a.size_mb }}MB</span>
+              </a>
+            {% else %}
+              <span class="dl-btn dl-btn-a dl-btn-disabled" title="Channel A not available">
+                <i class="fas fa-ban text-xs"></i> Ch.A
+              </span>
+            {% endif %}
+
+            <!-- Channel B -->
+            {% if item.file_b and item.file_b.exists %}
+              <a href="/api/recordings/{{ s.session_id }}/download/?channel=b"
+                 class="dl-btn dl-btn-b" title="Channel B — {{ item.file_b.size_mb }} MB">
+                <i class="fas fa-download text-xs"></i> Ch.B
+                <span class="file-chip">{{ item.file_b.size_mb }}MB</span>
+              </a>
+            {% else %}
+              <span class="dl-btn dl-btn-b dl-btn-disabled" title="Channel B not available">
+                <i class="fas fa-ban text-xs"></i> Ch.B
+              </span>
+            {% endif %}
+
+            <!-- Mixed -->
+            {% if item.file_mixed and item.file_mixed.exists %}
+              <a href="/api/recordings/{{ s.session_id }}/download/?channel=mixed"
+                 class="dl-btn dl-btn-mixed" title="Mixed stereo — {{ item.file_mixed.size_mb }} MB">
+                <i class="fas fa-download text-xs"></i> Stereo
+                <span class="file-chip">{{ item.file_mixed.size_mb }}MB</span>
+              </a>
+            {% else %}
+              <span class="dl-btn dl-btn-mixed dl-btn-disabled" title="Mixed file not available">
+                <i class="fas fa-ban text-xs"></i> Stereo
+              </span>
+            {% endif %}
+
+            {% if not item.has_any_file %}
+            <span class="text-xs text-gray-600 italic ml-1">
+              <i class="fas fa-info-circle mr-1"></i>No files stored yet
+            </span>
+            {% endif %}
+          </div>
+
+          <!-- Delete button -->
+          <div class="flex items-center gap-2">
+            {% if s.status == 'in_progress' %}
+            <a href="/recordings/{{ s.session_id }}/" class="dl-btn" style="background:rgba(96,165,250,0.12);color:#60a5fa;border-color:rgba(96,165,250,0.25);">
+              <i class="fas fa-headphones text-xs"></i> Join Session
+            </a>
+            {% elif s.status in 'requested,accepted' %}
+            <a href="/recordings/{{ s.session_id }}/" class="dl-btn" style="background:rgba(250,204,21,0.12);color:#facc15;border-color:rgba(250,204,21,0.25);">
+              <i class="fas fa-door-open text-xs"></i> Open
+            </a>
+            {% endif %}
+
+            {% if item.has_any_file %}
+            <button class="del-btn"
+                    onclick="openDeleteModal('{{ s.session_id }}', '{{ partner.full_name|default:"this session" }}', false)"
+                    title="Delete files only (keep session record)">
+              <i class="fas fa-trash-alt text-xs"></i> Delete Files
+            </button>
+            {% endif %}
+
+            {% if s.status in 'completed,failed,cancelled,rejected' %}
+            <button class="del-btn" style="background:rgba(239,68,68,0.08);border-color:rgba(239,68,68,0.2);"
+                    onclick="openDeleteModal('{{ s.session_id }}', '{{ partner.full_name|default:"this session" }}', true)"
+                    title="Delete files AND remove session from database">
+              <i class="fas fa-database text-xs"></i> Delete Record
+            </button>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endwith %}
+    {% empty %}
+    <!-- Empty state -->
+    <div class="card text-center py-16">
+      <div class="empty-glow">
+        <i class="fas fa-microphone-slash text-green-400 text-3xl opacity-60"></i>
+      </div>
+      <h3 class="text-lg font-semibold mb-2">No recordings yet</h3>
+      <p class="text-gray-500 text-sm mb-6">Start a recording session with a partner to earn money and build your portfolio.</p>
+      <a href="/dashboard/" class="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-400 hover:to-emerald-500 text-white font-semibold rounded-xl transition-all hover:scale-105 shadow-lg shadow-green-900/40">
+        <i class="fas fa-search"></i> Find Partners
+      </a>
+    </div>
+    {% endfor %}
+
+  </div><!-- /sessions-container -->
+</div>
+
+<!-- ─── Delete Confirmation Modal ──────────────────────────── -->
+<div id="delete-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in">
+  <div class="bg-gray-900 border border-gray-700 rounded-3xl p-8 max-w-md w-full mx-4 shadow-2xl animate-slide-up">
+    <div class="text-center">
+      <div class="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-500/20">
+        <i class="fas fa-trash-alt text-red-400 text-2xl"></i>
+      </div>
+      <h2 class="text-xl font-bold mb-2" id="delete-modal-title">Delete Recording?</h2>
+      <p class="text-gray-400 text-sm mb-1" id="delete-modal-msg">This will permanently delete the recording files.</p>
+      <p class="text-red-400 text-xs mb-6 font-medium" id="delete-modal-warn"></p>
+      <div class="flex gap-3">
+        <button id="delete-confirm-btn"
+                class="flex-1 bg-gradient-to-r from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 text-white font-semibold py-3 rounded-xl transition-all hover:scale-105 shadow-lg shadow-red-900/30 flex items-center justify-center gap-2">
+          <i class="fas fa-trash-alt"></i> <span id="delete-btn-label">Confirm Delete</span>
+        </button>
+        <button onclick="closeDeleteModal()"
+                class="px-6 bg-gray-800 hover:bg-gray-700 text-gray-400 rounded-xl transition-colors font-semibold">
+          Cancel
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── Toast ─────────────────────────────────────────────── -->
+<div id="toast"></div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+/* ─── Stats calculation ─────────────────────────────────────── */
+(function() {
+  const cards = document.querySelectorAll('#sessions-container .recording-card');
+  let files = 0, earned = 0, completed = 0;
+  cards.forEach(c => {
+    if (c.dataset.hasFiles === 'true') files++;
+    const e = parseFloat(c.dataset.earnings || 0);
+    if (!isNaN(e)) earned += e;
+    if (c.dataset.status === 'completed') completed++;
+  });
+  document.getElementById('stat-files').textContent = files;
+  document.getElementById('stat-earned').textContent = '₹' + earned.toFixed(2);
+  document.getElementById('stat-completed').textContent = completed;
+})();
+
+/* ─── Filter ────────────────────────────────────────────────── */
+function filterSessions(filter, btn) {
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  const cards = document.querySelectorAll('#sessions-container .recording-card');
+  const q = document.getElementById('search-sessions').value.trim().toLowerCase();
+  cards.forEach(c => {
+    let show = true;
+    if (filter === 'completed') show = c.dataset.status === 'completed';
+    else if (filter === 'in_progress') show = c.dataset.status === 'in_progress';
+    else if (filter === 'requested') show = ['requested','accepted'].includes(c.dataset.status);
+    else if (filter === 'has_files') show = c.dataset.hasFiles === 'true';
+    if (show && q) show = (c.dataset.partner || '').includes(q);
+    c.style.display = show ? '' : 'none';
+  });
+}
+
+document.getElementById('search-sessions').addEventListener('input', function() {
+  const activeBtn = document.querySelector('.filter-btn.active');
+  const currentFilter = activeBtn ? activeBtn.getAttribute('onclick').match(/'([^']+)'/)[1] : 'all';
+  filterSessions(currentFilter, null);
+});
+
+/* ─── Delete modal ──────────────────────────────────────────── */
+let _deleteSessionId = null;
+let _deleteRecord = false;
+
+function openDeleteModal(sessionId, partnerName, deleteRecord) {
+  _deleteSessionId = sessionId;
+  _deleteRecord = deleteRecord;
+
+  document.getElementById('delete-modal-title').textContent =
+    deleteRecord ? 'Delete Session Record?' : 'Delete Recording Files?';
+  document.getElementById('delete-modal-msg').textContent =
+    deleteRecord
+      ? `Session with ${partnerName} will be permanently removed from the database.`
+      : `Audio files for your session with ${partnerName} will be deleted from storage.`;
+  document.getElementById('delete-modal-warn').textContent =
+    deleteRecord
+      ? '⚠️ This will remove the session record AND all files. This action cannot be undone.'
+      : '⚠️ The session record will be kept. Only the audio files will be deleted to save storage.';
+  document.getElementById('delete-btn-label').textContent =
+    deleteRecord ? 'Delete Record' : 'Delete Files';
+
+  document.getElementById('delete-modal').classList.remove('hidden');
+}
+
+function closeDeleteModal() {
+  document.getElementById('delete-modal').classList.add('hidden');
+  _deleteSessionId = null;
+}
+
+document.getElementById('delete-confirm-btn').addEventListener('click', async function() {
+  if (!_deleteSessionId) return;
+  const btn = this;
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Deleting…';
+
+  const url = `/api/recordings/${_deleteSessionId}/delete/${_deleteRecord ? '?delete_record=true' : ''}`;
+
+  try {
+    const res = await apiFetch(url, { method: 'DELETE' });
+    const data = await res.json();
+    closeDeleteModal();
+
+    if (res.ok) {
+      showToast('success', _deleteRecord
+        ? 'Session deleted from database.'
+        : `Files deleted. ${data.deleted_files?.length || 0} file(s) removed.`);
+      // Remove card or update it
+      const card = document.querySelector(`[data-status][data-partner]`);
+      if (_deleteRecord) {
+        // Find card by session id in link href
+        document.querySelectorAll('.recording-card').forEach(c => {
+          if (c.innerHTML.includes(_deleteSessionId.substring(0, 8))) {
+            c.style.transition = 'all 0.3s ease';
+            c.style.opacity = '0';
+            c.style.transform = 'translateX(-20px)';
+            setTimeout(() => c.remove(), 300);
+          }
+        });
+      } else {
+        // Reload page to reflect updated file status
+        setTimeout(() => window.location.reload(), 1200);
+      }
+    } else {
+      showToast('error', data.error || 'Delete failed.');
+    }
+  } catch (e) {
+    showToast('error', 'Network error. Please try again.');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-trash-alt"></i> <span id="delete-btn-label">Confirm Delete</span>';
+  }
+});
+
+/* Close modal on backdrop click */
+document.getElementById('delete-modal').addEventListener('click', function(e) {
+  if (e.target === this) closeDeleteModal();
+});
+
+/* ─── Toast ─────────────────────────────────────────────────── */
+function showToast(type, message) {
+  const t = document.getElementById('toast');
+  const icon = type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle';
+  t.innerHTML = `<i class="fas ${icon}"></i>${message}`;
+  t.className = `show ${type}`;
+  setTimeout(() => { t.className = type; }, 3500);
+}
+</script>
+{% endblock %}

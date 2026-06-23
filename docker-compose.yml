@@ -1,0 +1,158 @@
+# ─────────────────────────────────────────────────────────────────
+#  AI Voice Data Marketplace — Docker Compose
+#  Services: web (Daphne), celery worker, celery beat, redis, postgres
+# ─────────────────────────────────────────────────────────────────
+
+services:
+
+  # ─── PostgreSQL Database ──────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: voicemarket_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-voicemarket}
+      POSTGRES_USER: ${POSTGRES_USER:-voicemarket}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-voicemarket_secret}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-voicemarket} -d ${POSTGRES_DB:-voicemarket}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - voicemarket_net
+
+  # ─── Redis (Cache + Channel Layer + Celery Broker) ────────────
+  redis:
+    image: redis:7-alpine
+    container_name: voicemarket_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - voicemarket_net
+
+  # ─── Django + Daphne (ASGI — HTTP + WebSockets) ───────────────
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: voicemarket_web
+    restart: unless-stopped
+    env_file:
+      - .env.docker
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.docker
+    command: >
+      sh -c "
+        echo '⏳ Waiting for DB...' &&
+        while ! nc -z db 5432; do sleep 1; done &&
+        echo '✅ DB ready' &&
+        python manage.py migrate --noinput &&
+        python manage.py collectstatic --noinput --clear 2>/dev/null || true &&
+        daphne -b 0.0.0.0 -p 8000 config.asgi:application
+      "
+    ports:
+      - "8000:8000"
+    volumes:
+      - media_files:/app/media
+      - static_files:/app/staticfiles
+      - ./logs:/app/logs
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+    networks:
+      - voicemarket_net
+
+  # ─── Celery Worker ────────────────────────────────────────────
+  celery:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: voicemarket_celery
+    restart: unless-stopped
+    env_file:
+      - .env.docker
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.docker
+    command: >
+      sh -c "
+        echo '⏳ Waiting for Redis...' &&
+        while ! nc -z redis 6379; do sleep 1; done &&
+        echo '✅ Redis ready' &&
+        celery -A celery_app worker --loglevel=info --concurrency=4 -Q celery,default
+      "
+    volumes:
+      - media_files:/app/media
+    depends_on:
+      redis:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+    networks:
+      - voicemarket_net
+
+  # ─── Celery Beat (Scheduler) ──────────────────────────────────
+  celery_beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: voicemarket_beat
+    restart: unless-stopped
+    env_file:
+      - .env.docker
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.docker
+    command: >
+      sh -c "
+        echo '⏳ Waiting for DB and Redis...' &&
+        while ! nc -z db 5432; do sleep 1; done &&
+        while ! nc -z redis 6379; do sleep 1; done &&
+        echo '✅ All ready — starting beat scheduler' &&
+        celery -A celery_app beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+      "
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - voicemarket_net
+
+
+# ─── Named Volumes ────────────────────────────────────────────────
+volumes:
+  postgres_data:
+    name: voicemarket_postgres_data
+  redis_data:
+    name: voicemarket_redis_data
+  media_files:
+    name: voicemarket_media
+  static_files:
+    name: voicemarket_static
+
+# ─── Networks ────────────────────────────────────────────────────
+networks:
+  voicemarket_net:
+    name: voicemarket_network
+    driver: bridge

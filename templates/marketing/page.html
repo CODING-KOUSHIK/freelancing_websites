@@ -1,0 +1,101 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="{{ page.body }}" />
+  <title>{{ page.title }} - AI Voice Data Marketplace</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'sans-serif'] },
+          colors: {
+            brand: {
+              400: '#34d399',
+              500: '#22c55e',
+              600: '#16a34a'
+            }
+          }
+        }
+      }
+    };
+  </script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+</head>
+<body class="bg-slate-950 text-slate-100 font-sans antialiased">
+  <div class="absolute inset-0 -z-10 overflow-hidden">
+    <div class="absolute left-[-10%] top-[-10%] h-72 w-72 rounded-full bg-emerald-500/20 blur-3xl"></div>
+    <div class="absolute right-[-8%] top-[20%] h-80 w-80 rounded-full bg-cyan-500/10 blur-3xl"></div>
+    <div class="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(16,185,129,0.15),_transparent_45%)]"></div>
+  </div>
+
+  <header class="sticky top-0 z-40 border-b border-white/5 bg-slate-950/80 backdrop-blur">
+    <div class="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
+      <a href="/" class="flex items-center gap-3">
+        <div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-400 to-teal-600 shadow-lg shadow-emerald-900/30">
+          <i class="fa-solid fa-wave-square text-white"></i>
+        </div>
+        <div>
+          <p class="text-sm font-semibold tracking-[0.2em] text-emerald-300">AI VOICE DATA MARKETPLACE</p>
+          <p class="text-xs text-slate-400">Voice, tasks, and enterprise work</p>
+        </div>
+      </a>
+      <nav class="hidden items-center gap-6 text-sm text-slate-300 md:flex">
+        <a href="/about/" class="hover:text-white">About</a>
+        <a href="/pricing/" class="hover:text-white">Pricing</a>
+        <a href="/faq/" class="hover:text-white">FAQ</a>
+        <a href="/jobs/" class="hover:text-white">Jobs</a>
+        <a href="/admin/" class="hover:text-white">Portal</a>
+      </nav>
+      <div class="flex items-center gap-3">
+        <a href="/login/" class="rounded-xl px-4 py-2 text-sm text-slate-300 hover:text-white">Login</a>
+        <a href="/register/" class="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-300">Get Started</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="mx-auto max-w-5xl px-4 py-20 sm:px-6 lg:px-8">
+    <section class="text-center">
+      <div class="mx-auto mb-6 inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-300">
+        <i class="fa-solid fa-shield-halved"></i>
+        {{ page.title }}
+      </div>
+      <h1 class="text-4xl font-black tracking-tight text-white sm:text-6xl">
+        {{ page.headline }}
+      </h1>
+      <p class="mx-auto mt-6 max-w-3xl text-lg leading-8 text-slate-300">
+        {{ page.body }}
+      </p>
+      <div class="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
+        <a href="/register/" class="rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 px-6 py-3 font-semibold text-white shadow-lg shadow-emerald-900/30 transition hover:scale-[1.02]">
+          Join now
+        </a>
+        <a href="/jobs/" class="rounded-2xl border border-white/10 px-6 py-3 font-semibold text-slate-200 transition hover:border-emerald-400/40 hover:text-white">
+          Browse jobs
+        </a>
+      </div>
+    </section>
+
+    <section class="mt-16 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div class="rounded-3xl border border-white/8 bg-white/5 p-6">
+        <p class="text-sm text-slate-400">Enterprise ready</p>
+        <p class="mt-2 text-xl font-bold text-white">Custom portal, analytics, and workflow controls</p>
+      </div>
+      <div class="rounded-3xl border border-white/8 bg-white/5 p-6">
+        <p class="text-sm text-slate-400">Modular payouts</p>
+        <p class="mt-2 text-xl font-bold text-white">Wallets, withdrawals, bonuses, and recharge plans</p>
+      </div>
+      <div class="rounded-3xl border border-white/8 bg-white/5 p-6">
+        <p class="text-sm text-slate-400">Task variety</p>
+        <p class="mt-2 text-xl font-bold text-white">Voice, surveys, annotation, validation, and more</p>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

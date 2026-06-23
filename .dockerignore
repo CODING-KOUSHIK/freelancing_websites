@@ -1,0 +1,57 @@
+# ─── Python ────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+dist/
+build/
+
+# ─── Virtual environments ──────────────────────────────────────
+.venv/
+venv/
+env/
+
+# ─── Django runtime / data ────────────────────────────────────
+db.sqlite3
+*.sqlite3
+media/
+staticfiles/
+logs/
+
+# ─── Git ──────────────────────────────────────────────────────
+.git/
+.gitmeta/
+.gitignore
+
+# ─── Environment / secrets ────────────────────────────────────
+.env
+.env.example
+# NOTE: .env.docker IS needed by docker-compose but NOT by the image itself
+.env.docker
+
+# ─── Docker files (no self-recursion needed) ──────────────────
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# ─── Docs / agent workspace ──────────────────────────────────
+docs/
+.agents/
+
+# ─── OS / editor ──────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ─── Node (if any) ────────────────────────────────────────────
+node_modules/
+npm-debug.log

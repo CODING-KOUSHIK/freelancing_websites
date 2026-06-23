@@ -1,0 +1,44 @@
+{% extends "base.html" %}{% load static %}
+{% block title %}Wallet — VoiceMarket{% endblock %}
+{% block content %}
+<div class="animate-fade-in">
+  <div class="flex items-center justify-between mb-6">
+    <h1 class="text-2xl font-bold"><i class="fas fa-wallet mr-2 text-green-400"></i>My Wallet</h1>
+    <a href="/wallet/withdraw/" class="bg-gradient-to-r from-green-500 to-emerald-600 text-white font-semibold px-5 py-2.5 rounded-xl hover:from-green-400 hover:to-emerald-500 transition-all shadow-lg shadow-green-900/30 text-sm"><i class="fas fa-arrow-right mr-1"></i>Withdraw</a>
+  </div>
+  <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+    <div class="stat-card"><p class="text-xs text-gray-500 uppercase tracking-widest font-semibold mb-1">Available</p><p class="text-3xl font-bold text-green-400" id="w-avail">₹0.00</p></div>
+    <div class="stat-card"><p class="text-xs text-gray-500 uppercase tracking-widest font-semibold mb-1">Pending</p><p class="text-3xl font-bold text-yellow-400" id="w-pending">₹0.00</p></div>
+    <div class="stat-card"><p class="text-xs text-gray-500 uppercase tracking-widest font-semibold mb-1">Total Earned</p><p class="text-3xl font-bold text-emerald-400" id="w-total">₹0.00</p></div>
+  </div>
+  <div class="card">
+    <h3 class="font-semibold mb-4">Transaction History</h3>
+    <div id="txn-list" class="space-y-2 max-h-96 overflow-y-auto"><div class="text-center py-8 text-gray-600 text-sm">Loading transactions...</div></div>
+  </div>
+</div>
+{% endblock %}
+{% block extra_scripts %}
+<script>
+  async function loadWallet(){
+    try{
+      const [wr,tr]=await Promise.all([
+        apiFetch('/api/wallet/',{headers:{}}),
+        apiFetch('/api/wallet/transactions/',{headers:{}}),
+      ]);
+      const w=await wr.json(), txns=await tr.json();
+      document.getElementById('w-avail').textContent='₹'+parseFloat(w.available_balance).toFixed(2);
+      document.getElementById('w-pending').textContent='₹'+parseFloat(w.pending_balance).toFixed(2);
+      document.getElementById('w-total').textContent='₹'+parseFloat(w.total_earned).toFixed(2);
+      const list=document.getElementById('txn-list');
+      const results=txns.results||txns;
+      if(results.length){
+        list.innerHTML=results.map(t=>{
+          const icon=t.transaction_type==='credit'?'arrow-down text-green-400':t.transaction_type==='debit'?'arrow-up text-red-400':'circle text-yellow-400';
+          return `<div class="flex items-center justify-between p-3 bg-gray-800/50 rounded-xl"><div class="flex items-center gap-3"><div class="w-8 h-8 bg-gray-700 rounded-full flex items-center justify-center"><i class="fas fa-${icon} text-xs"></i></div><div><p class="text-sm font-medium">${t.description||t.transaction_type}</p><p class="text-xs text-gray-500">${new Date(t.created_at).toLocaleDateString()}</p></div></div><span class="font-bold ${t.transaction_type==='credit'||t.transaction_type==='bonus'?'text-green-400':'text-red-400'}">₹${parseFloat(t.amount).toFixed(2)}</span></div>`;
+        }).join('');
+      }else list.innerHTML='<div class="text-center py-8 text-gray-600 text-sm">No transactions yet.</div>';
+    }catch(e){console.error(e);}
+  }
+  loadWallet();
+</script>
+{% endblock %}

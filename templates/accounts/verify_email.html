@@ -1,0 +1,122 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en" class="dark"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Verify Email — VoiceMarket</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"><script src="https://cdn.tailwindcss.com"></script><script>tailwind.config={darkMode:'class',theme:{extend:{fontFamily:{sans:['Inter','sans-serif']}}}};</script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/></head>
+<body class="bg-gray-950 text-gray-100 font-sans min-h-screen flex items-center justify-center px-4 antialiased">
+  <div class="w-full max-w-md text-center">
+    <div class="w-20 h-20 bg-gradient-to-br from-green-400 to-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6"><i class="fas fa-envelope-open text-white text-3xl"></i></div>
+    <h1 class="text-3xl font-bold mb-2">Verify Your Email</h1>
+    <p class="text-gray-400 mb-2">Enter the 6-digit OTP sent to</p>
+    <p id="email-display" class="text-green-400 font-medium mb-8 text-sm"></p>
+    <div class="bg-gray-900 border border-gray-800 rounded-3xl p-8">
+      <div id="otp-error" class="hidden mb-4 p-3 bg-red-900/30 border border-red-700 text-red-300 text-sm rounded-xl"></div>
+      <div id="otp-success" class="hidden mb-4 p-3 bg-green-900/30 border border-green-700 text-green-300 text-sm rounded-xl"></div>
+      <div class="flex gap-2 justify-center mb-6">
+        <input type="text" inputmode="numeric" maxlength="1" class="otp-input w-12 h-14 bg-gray-800 border border-gray-700 rounded-xl text-center text-2xl font-bold focus:border-green-500 outline-none" data-idx="0"/>
+        <input type="text" inputmode="numeric" maxlength="1" class="otp-input w-12 h-14 bg-gray-800 border border-gray-700 rounded-xl text-center text-2xl font-bold focus:border-green-500 outline-none" data-idx="1"/>
+        <input type="text" inputmode="numeric" maxlength="1" class="otp-input w-12 h-14 bg-gray-800 border border-gray-700 rounded-xl text-center text-2xl font-bold focus:border-green-500 outline-none" data-idx="2"/>
+        <input type="text" inputmode="numeric" maxlength="1" class="otp-input w-12 h-14 bg-gray-800 border border-gray-700 rounded-xl text-center text-2xl font-bold focus:border-green-500 outline-none" data-idx="3"/>
+        <input type="text" inputmode="numeric" maxlength="1" class="otp-input w-12 h-14 bg-gray-800 border border-gray-700 rounded-xl text-center text-2xl font-bold focus:border-green-500 outline-none" data-idx="4"/>
+        <input type="text" inputmode="numeric" maxlength="1" class="otp-input w-12 h-14 bg-gray-800 border border-gray-700 rounded-xl text-center text-2xl font-bold focus:border-green-500 outline-none" data-idx="5"/>
+      </div>
+      <button id="verify-btn" onclick="verifyOtp()"
+        class="w-full bg-gradient-to-r from-green-500 to-emerald-600 text-white font-semibold py-3 rounded-xl shadow-lg shadow-green-900/30 hover:from-green-400 hover:to-emerald-500 transition-all">
+        <i class="fas fa-check-circle mr-2"></i>Verify & Sign In
+      </button>
+      <button onclick="resendOtp()" class="mt-3 text-sm text-green-400 hover:text-green-300 block w-full">
+        <i class="fas fa-redo mr-1"></i>Resend OTP
+      </button>
+    </div>
+  </div>
+  <script>
+    const inputs = document.querySelectorAll('.otp-input');
+    const emailParam = new URLSearchParams(window.location.search).get('email') || '';
+    document.getElementById('email-display').textContent = emailParam;
+
+    inputs.forEach((inp, i) => {
+      inp.addEventListener('input', (e) => {
+        // Allow only digits
+        e.target.value = e.target.value.replace(/\D/g, '');
+        if (e.target.value && i < 5) inputs[i+1].focus();
+      });
+      inp.addEventListener('keydown', (e) => {
+        if (e.key === 'Backspace' && !e.target.value && i > 0) inputs[i-1].focus();
+      });
+      inp.addEventListener('paste', (e) => {
+        e.preventDefault();
+        const pasted = (e.clipboardData.getData('text') || '').replace(/\D/g, '').slice(0,6);
+        inputs.forEach((inp2, j) => { inp2.value = pasted[j] || ''; });
+        if (pasted.length === 6) document.getElementById('verify-btn').focus();
+      });
+    });
+
+    function getOtp() { return Array.from(inputs).map(i => i.value).join(''); }
+
+    async function verifyOtp() {
+      const otp = getOtp();
+      if (otp.length !== 6) {
+        showMsg('error', 'Please enter all 6 digits.');
+        return;
+      }
+      const btn = document.getElementById('verify-btn');
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Verifying...';
+
+      try {
+        // Step 1: Verify OTP via API
+        const res = await fetch('/api/auth/verify-otp/', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({email: emailParam, otp_code: otp, purpose: 'email_verify'})
+        });
+        const d = await res.json();
+
+        if (res.ok) {
+          // Store JWT tokens
+          localStorage.removeItem('access_token');
+          localStorage.removeItem('refresh_token');
+          if (d.access) localStorage.setItem('access_token', d.access);
+          if (d.refresh) localStorage.setItem('refresh_token', d.refresh);
+
+          // Step 2: Create Django session (so templates work)
+          await fetch('/session-login-otp/', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({email: emailParam})
+          });
+
+          showMsg('success', 'Email verified! Redirecting to dashboard...');
+          setTimeout(() => window.location.href = '/dashboard/', 1500);
+        } else {
+          const errMsg = d.otp_code || d.non_field_errors || Object.values(d).flat().join(' ') || 'Invalid OTP.';
+          showMsg('error', Array.isArray(errMsg) ? errMsg[0] : errMsg);
+          btn.disabled = false;
+          btn.innerHTML = '<i class="fas fa-check-circle mr-2"></i>Verify & Sign In';
+        }
+      } catch(e) {
+        showMsg('error', 'Network error. Please try again.');
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-check-circle mr-2"></i>Verify & Sign In';
+      }
+    }
+
+    async function resendOtp() {
+      const res = await fetch('/api/auth/resend-otp/', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({email: emailParam, purpose: 'email_verify'})
+      });
+      if (res.ok) showMsg('success', 'New OTP sent! Check your inbox.');
+      else showMsg('error', 'Failed to resend OTP.');
+    }
+
+    function showMsg(type, text) {
+      const err = document.getElementById('otp-error');
+      const suc = document.getElementById('otp-success');
+      err.classList.add('hidden'); suc.classList.add('hidden');
+      if (type === 'error') { err.textContent = text; err.classList.remove('hidden'); }
+      else { suc.textContent = text; suc.classList.remove('hidden'); }
+    }
+  </script>
+</body></html>

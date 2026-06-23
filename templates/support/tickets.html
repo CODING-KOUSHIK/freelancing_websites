@@ -1,0 +1,44 @@
+{% extends "base.html" %}{% load static %}
+{% block title %}Support — VoiceMarket{% endblock %}
+{% block content %}
+<div class="animate-fade-in">
+  <div class="flex items-center justify-between mb-6">
+    <h1 class="text-2xl font-bold"><i class="fas fa-headset mr-2 text-green-400"></i>Support Tickets</h1>
+    <button onclick="document.getElementById('new-ticket-modal').classList.toggle('hidden')" class="bg-gradient-to-r from-green-500 to-emerald-600 text-white font-semibold px-5 py-2.5 rounded-xl text-sm"><i class="fas fa-plus mr-1"></i>New Ticket</button>
+  </div>
+  <div class="space-y-3">
+    {% for ticket in tickets %}
+    <a href="/support/tickets/{{ ticket.pk }}/" class="card flex items-center justify-between hover:border-green-500/20 transition-colors group block">
+      <div><p class="font-semibold group-hover:text-green-400 transition-colors">{{ ticket.title }}</p><p class="text-xs text-gray-500">{{ ticket.ticket_number }} · {{ ticket.created_at|timesince }} ago</p></div>
+      <span class="text-xs px-2.5 py-1 rounded-full font-semibold {% if ticket.status == 'open' %}bg-yellow-500/10 text-yellow-400{% elif ticket.status == 'resolved' %}bg-green-500/10 text-green-400{% else %}bg-blue-500/10 text-blue-400{% endif %}">{{ ticket.get_status_display }}</span>
+    </a>
+    {% empty %}
+    <div class="card text-center py-12 text-gray-600"><i class="fas fa-ticket-alt text-4xl mb-3 block opacity-30"></i><p class="text-sm">No tickets yet.</p></div>
+    {% endfor %}
+  </div>
+</div>
+<!-- New Ticket Modal -->
+<div id="new-ticket-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+  <div class="bg-gray-900 border border-gray-700 rounded-3xl p-8 max-w-md w-full mx-4">
+    <h2 class="text-xl font-bold mb-4">Create Ticket</h2>
+    <div id="tk-msg" class="hidden mb-3 p-3 text-sm rounded-xl"></div>
+    <form id="tk-form" class="space-y-4">
+      <input type="text" id="tk-title" placeholder="Subject" required class="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm focus:border-green-500 outline-none"/>
+      <select id="tk-cat" class="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm focus:border-green-500 outline-none"><option value="account">Account</option><option value="payment">Payment</option><option value="recording">Recording</option><option value="technical">Technical</option><option value="other">Other</option></select>
+      <textarea id="tk-desc" placeholder="Describe your issue..." rows="4" required class="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-sm resize-none focus:border-green-500 outline-none"></textarea>
+      <div class="flex gap-3">
+        <button type="submit" class="flex-1 bg-gradient-to-r from-green-500 to-emerald-600 text-white font-semibold py-3 rounded-xl">Submit</button>
+        <button type="button" onclick="document.getElementById('new-ticket-modal').classList.add('hidden')" class="px-6 bg-gray-800 text-gray-400 rounded-xl">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+{% block extra_scripts %}
+<script>
+document.getElementById('tk-form').addEventListener('submit',async(e)=>{e.preventDefault();
+  try{const r=await apiFetch('/api/support/tickets/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:document.getElementById('tk-title').value,description:document.getElementById('tk-desc').value,category:document.getElementById('tk-cat').value})});
+  if(r.ok||r.status===201){window.location.reload();}else{const d=await r.json();alert(Object.values(d).flat().join(' '));}}catch(ex){alert('Network error.');}
+});
+</script>
+{% endblock %}

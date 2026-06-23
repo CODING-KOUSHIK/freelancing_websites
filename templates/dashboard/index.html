@@ -1,0 +1,322 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Dashboard — VoiceMarket{% endblock %}
+
+{% block content %}
+<div class="animate-fade-in">
+
+  <!-- ─── Header ──────────────────────────────────────────────── -->
+  <div class="flex flex-col sm:flex-row sm:items-center justify-between mb-8 gap-4">
+    <div>
+      <h1 class="text-3xl font-bold">
+        Welcome back, <span class="bg-gradient-to-r from-green-400 to-emerald-500 bg-clip-text text-transparent">{{ user.short_name }}</span> 👋
+      </h1>
+      <p class="text-gray-400 mt-1">
+        <span class="inline-flex items-center gap-1.5">
+          <span class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
+          Online · Streak {{ user.login_streak }} days 🔥
+        </span>
+      </p>
+    </div>
+    <a href="/recordings/" class="inline-flex items-center gap-2 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-400 hover:to-emerald-500 text-white font-semibold px-6 py-3 rounded-xl shadow-lg shadow-green-900/40 transition-all transform hover:scale-105 hover:-translate-y-0.5">
+      <i class="fas fa-microphone"></i> Start Recording
+    </a>
+  </div>
+
+  <!-- ─── Stats Cards ─────────────────────────────────────────── -->
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+
+    <div class="stat-card group">
+      <div class="flex items-start justify-between mb-3">
+        <div>
+          <p class="text-xs text-gray-500 uppercase tracking-widest font-semibold">Available Balance</p>
+          <p class="text-3xl font-bold mt-1" id="stat-balance">₹0.00</p>
+        </div>
+        <div class="w-12 h-12 bg-green-500/10 rounded-2xl flex items-center justify-center group-hover:bg-green-500/20 transition-colors">
+          <i class="fas fa-wallet text-green-400 text-xl"></i>
+        </div>
+      </div>
+      <div class="flex items-center gap-1.5 text-xs text-gray-500">
+        <span class="text-green-400" id="stat-pending-label">₹0.00 pending</span>
+      </div>
+    </div>
+
+    <div class="stat-card group">
+      <div class="flex items-start justify-between mb-3">
+        <div>
+          <p class="text-xs text-gray-500 uppercase tracking-widest font-semibold">Total Earned</p>
+          <p class="text-3xl font-bold mt-1" id="stat-total-earned">₹0.00</p>
+        </div>
+        <div class="w-12 h-12 bg-emerald-500/10 rounded-2xl flex items-center justify-center group-hover:bg-emerald-500/20 transition-colors">
+          <i class="fas fa-coins text-emerald-400 text-xl"></i>
+        </div>
+      </div>
+    </div>
+
+    <div class="stat-card group">
+      <div class="flex items-start justify-between mb-3">
+        <div>
+          <p class="text-xs text-gray-500 uppercase tracking-widest font-semibold">Recordings</p>
+          <p class="text-3xl font-bold mt-1" id="stat-recordings">0</p>
+        </div>
+        <div class="w-12 h-12 bg-blue-500/10 rounded-2xl flex items-center justify-center group-hover:bg-blue-500/20 transition-colors">
+          <i class="fas fa-microphone-alt text-blue-400 text-xl"></i>
+        </div>
+      </div>
+      <div class="text-xs text-gray-500">
+        <span id="stat-hours">0.0</span> total hours
+      </div>
+    </div>
+
+    <div class="stat-card group">
+      <div class="flex items-start justify-between mb-3">
+        <div>
+          <p class="text-xs text-gray-500 uppercase tracking-widest font-semibold">Reputation</p>
+          <p class="text-3xl font-bold mt-1" id="stat-rating">0.0 ⭐</p>
+        </div>
+        <div class="w-12 h-12 bg-yellow-500/10 rounded-2xl flex items-center justify-center group-hover:bg-yellow-500/20 transition-colors">
+          <i class="fas fa-star text-yellow-400 text-xl"></i>
+        </div>
+      </div>
+      <div class="text-xs text-gray-500">Based on partner ratings</div>
+    </div>
+  </div>
+
+  <!-- ─── Profile Completion & KYC ───────────────────────────── -->
+  <!-- Marketplace Overview -->
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+    <div class="stat-card group">
+      <div class="flex items-start justify-between mb-3">
+        <div>
+          <p class="text-xs text-gray-500 uppercase tracking-widest font-semibold">Applications</p>
+          <p class="text-3xl font-bold mt-1" id="marketplace-applications">0</p>
+        </div>
+        <div class="w-12 h-12 bg-emerald-500/10 rounded-2xl flex items-center justify-center group-hover:bg-emerald-500/20 transition-colors">
+          <i class="fas fa-file-signature text-emerald-400 text-xl"></i>
+        </div>
+      </div>
+    </div>
+    <div class="stat-card group">
+      <div class="flex items-start justify-between mb-3">
+        <div>
+          <p class="text-xs text-gray-500 uppercase tracking-widest font-semibold">Saved Jobs</p>
+          <p class="text-3xl font-bold mt-1" id="marketplace-saved">0</p>
+        </div>
+        <div class="w-12 h-12 bg-blue-500/10 rounded-2xl flex items-center justify-center group-hover:bg-blue-500/20 transition-colors">
+          <i class="fas fa-bookmark text-blue-400 text-xl"></i>
+        </div>
+      </div>
+    </div>
+    <div class="stat-card group">
+      <div class="flex items-start justify-between mb-3">
+        <div>
+          <p class="text-xs text-gray-500 uppercase tracking-widest font-semibold">Following</p>
+          <p class="text-3xl font-bold mt-1" id="marketplace-followed">0</p>
+        </div>
+        <div class="w-12 h-12 bg-violet-500/10 rounded-2xl flex items-center justify-center group-hover:bg-violet-500/20 transition-colors">
+          <i class="fas fa-users text-violet-400 text-xl"></i>
+        </div>
+      </div>
+    </div>
+    <div class="stat-card group">
+      <div class="flex items-start justify-between mb-3">
+        <div>
+          <p class="text-xs text-gray-500 uppercase tracking-widest font-semibold">XP</p>
+          <p class="text-3xl font-bold mt-1" id="marketplace-xp">0</p>
+        </div>
+        <div class="w-12 h-12 bg-amber-500/10 rounded-2xl flex items-center justify-center group-hover:bg-amber-500/20 transition-colors">
+          <i class="fas fa-bolt text-amber-400 text-xl"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-8">
+
+    <!-- Profile Completion -->
+    <div class="card">
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="font-semibold">Profile Strength</h3>
+        <span id="profile-pct" class="text-green-400 font-bold">0%</span>
+      </div>
+      <div class="w-full bg-gray-800 rounded-full h-2.5 mb-4">
+        <div id="profile-bar" class="h-2.5 rounded-full bg-gradient-to-r from-green-400 to-emerald-500 transition-all duration-700" style="width:0%"></div>
+      </div>
+      <div class="space-y-2 text-sm text-gray-400">
+        <div class="flex items-center gap-2">
+          <i class="fas fa-check-circle text-green-400 w-4"></i>
+          <span>Email verified</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <i id="kyc-icon" class="fas fa-circle-notch text-gray-500 w-4"></i>
+          <span id="kyc-text">KYC not submitted</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <i id="photo-icon" class="fas fa-circle-notch text-gray-500 w-4"></i>
+          <span>Profile photo</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Level Progress -->
+    <div class="card">
+      <h3 class="font-semibold mb-4">Your Level</h3>
+      <div class="text-center py-2">
+        <div class="inline-flex items-center gap-2 bg-gradient-to-r from-green-500/20 to-emerald-600/20 border border-green-500/30 rounded-2xl px-4 py-2 mb-4">
+          <i class="fas fa-crown text-yellow-400"></i>
+          <span class="font-bold capitalize" id="user-level">{{ user.level }}</span>
+        </div>
+        <div class="grid grid-cols-4 gap-1 mt-2">
+          {% for lvl, label in levels %}
+          <div class="text-center">
+            <div class="h-1.5 rounded-full mb-1 {% if user.level == lvl %}bg-green-400{% else %}bg-gray-700{% endif %}"></div>
+            <p class="text-xs text-gray-500 truncate">{{ label }}</p>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <!-- Referral Code -->
+    <div class="card">
+      <h3 class="font-semibold mb-4">Referral Program</h3>
+      <p class="text-sm text-gray-400 mb-3">Share your code and earn ₹50 for every friend who joins.</p>
+      <div class="flex gap-2">
+        <div class="flex-1 bg-gray-800 rounded-xl px-4 py-2.5 font-mono font-bold text-green-400 text-center tracking-widest">
+          {{ user.referral_code }}
+        </div>
+        <button onclick="copyReferralCode('{{ user.referral_code }}')"
+          class="w-10 h-10 bg-gray-700 hover:bg-green-600 rounded-xl flex items-center justify-center transition-colors">
+          <i class="fas fa-copy text-sm"></i>
+        </button>
+      </div>
+      <p class="text-xs text-center text-gray-500 mt-3" id="copy-feedback"></p>
+    </div>
+  </div>
+
+  <!-- ─── Recent Recordings & Notifications ─────────────────── -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+    <!-- Recent Recordings -->
+    <div class="card">
+      <div class="flex justify-between items-center mb-5">
+        <h3 class="font-semibold">Recent Recordings</h3>
+        <a href="/recordings/" class="text-xs text-green-400 hover:text-green-300">View all →</a>
+      </div>
+      <div id="recent-recordings" class="space-y-3">
+        <div class="text-center py-8 text-gray-600">
+          <i class="fas fa-microphone-slash text-4xl mb-3 block opacity-30"></i>
+          <p class="text-sm">No recordings yet.</p>
+          <a href="/recordings/" class="text-green-400 text-sm mt-1 inline-block hover:underline">Start your first recording →</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Notifications -->
+    <div class="card">
+      <div class="flex justify-between items-center mb-5">
+        <h3 class="font-semibold">Notifications</h3>
+        <button id="mark-all-dash" class="text-xs text-green-400 hover:text-green-300">Mark all read</button>
+      </div>
+      <div id="notifications-list" class="space-y-3 max-h-80 overflow-y-auto">
+        <div class="text-center py-8 text-gray-600">
+          <i class="fas fa-bell-slash text-4xl mb-3 block opacity-30"></i>
+          <p class="text-sm">No notifications.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+async function loadDashboardStats() {
+  try {
+    const res = await apiFetch('/api/auth/dashboard/', {
+      headers: {},
+    });
+    if (!res.ok) return;
+    const d = await res.json();
+    document.getElementById('stat-balance').textContent = `₹${parseFloat(d.available_balance).toFixed(2)}`;
+    document.getElementById('stat-pending-label').textContent = `₹${parseFloat(d.pending_earnings).toFixed(2)} pending`;
+    document.getElementById('stat-total-earned').textContent = `₹${parseFloat(d.total_earnings).toFixed(2)}`;
+    document.getElementById('stat-recordings').textContent = d.completed_recordings;
+    document.getElementById('stat-hours').textContent = d.total_hours;
+    document.getElementById('stat-rating').textContent = `${d.reputation_score} ⭐`;
+    document.getElementById('profile-pct').textContent = `${d.profile_completion}%`;
+    document.getElementById('profile-bar').style.width = `${d.profile_completion}%`;
+    // KYC
+    const kycIcon = document.getElementById('kyc-icon');
+    const kycText = document.getElementById('kyc-text');
+    if (d.kyc_status === 'approved') {
+      kycIcon.className = 'fas fa-check-circle text-green-400 w-4';
+      kycText.textContent = 'KYC approved ✅';
+    } else if (d.kyc_status === 'pending') {
+      kycIcon.className = 'fas fa-clock text-yellow-400 w-4';
+      kycText.textContent = 'KYC under review';
+    }
+  } catch(e) { console.error('Dashboard stats error:', e); }
+}
+
+async function loadNotifications() {
+  try {
+    const res = await apiFetch('/api/notifications/', {
+      headers: {},
+    });
+    const data = await res.json();
+    const list = document.getElementById('notifications-list');
+    if (data.results && data.results.length > 0) {
+      list.innerHTML = data.results.slice(0, 8).map(n => `
+        <div class="flex gap-3 p-3 rounded-xl ${n.is_read ? 'opacity-60' : 'bg-green-500/5 border border-green-500/10'}">
+          <div class="w-8 h-8 rounded-full bg-gray-800 flex items-center justify-center flex-shrink-0 mt-0.5">
+            <i class="fas fa-bell text-green-400 text-xs"></i>
+          </div>
+          <div class="flex-1 min-w-0">
+            <p class="text-sm font-medium truncate">${n.title}</p>
+            <p class="text-xs text-gray-500 mt-0.5 line-clamp-2">${n.message}</p>
+          </div>
+        </div>
+      `).join('');
+    }
+  } catch(e) {}
+}
+
+function copyReferralCode(code) {
+  navigator.clipboard.writeText(code).then(() => {
+    document.getElementById('copy-feedback').textContent = '✓ Copied to clipboard!';
+    setTimeout(() => document.getElementById('copy-feedback').textContent = '', 2000);
+  });
+}
+
+document.getElementById('mark-all-dash')?.addEventListener('click', async () => {
+  await apiFetch('/api/notifications/mark-read/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' }
+  });
+  loadNotifications();
+});
+
+loadDashboardStats();
+loadNotifications();
+loadMarketplaceOverview();
+
+async function loadMarketplaceOverview() {
+  try {
+    const res = await apiFetch('/api/marketplace/overview/', {
+      headers: {},
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    document.getElementById('marketplace-applications').textContent = data.overview?.applications ?? 0;
+    document.getElementById('marketplace-saved').textContent = data.saved_jobs ?? 0;
+    document.getElementById('marketplace-followed').textContent = (data.followed_jobs ?? 0) + (data.followed_recruiters ?? 0);
+    document.getElementById('marketplace-xp').textContent = data.profile?.xp_points ?? 0;
+  } catch(e) {
+    console.error('Marketplace overview error:', e);
+  }
+}
+</script>
+{% endblock %}

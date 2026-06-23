@@ -1,0 +1,44 @@
+{% extends "base.html" %}{% load static %}
+{% block title %}Ticket #{{ ticket.ticket_number }} — VoiceMarket{% endblock %}
+{% block content %}
+<div class="animate-fade-in max-w-2xl">
+  <a href="/support/" class="text-sm text-gray-500 hover:text-green-400 mb-4 inline-block"><i class="fas fa-arrow-left mr-1"></i>Back to tickets</a>
+  <div class="card mb-4">
+    <div class="flex justify-between items-start mb-3">
+      <h1 class="text-xl font-bold">{{ ticket.title }}</h1>
+      <span class="text-xs px-2.5 py-1 rounded-full font-semibold {% if ticket.status == 'open' %}bg-yellow-500/10 text-yellow-400{% elif ticket.status == 'resolved' %}bg-green-500/10 text-green-400{% else %}bg-blue-500/10 text-blue-400{% endif %}">{{ ticket.get_status_display }}</span>
+    </div>
+    <p class="text-gray-400 text-sm mb-3">{{ ticket.description }}</p>
+    <p class="text-xs text-gray-600">{{ ticket.ticket_number }} · {{ ticket.get_category_display }} · {{ ticket.created_at|timesince }} ago</p>
+  </div>
+  <div class="space-y-3 mb-6" id="replies">
+    {% for reply in ticket.replies.all %}
+    {% if not reply.is_internal_note %}
+    <div class="card {% if reply.author.is_staff %}border-l-4 border-green-500{% else %}border-l-4 border-gray-700{% endif %}">
+      <div class="flex justify-between text-sm mb-2">
+        <span class="font-semibold {% if reply.author.is_staff %}text-green-400{% endif %}">{{ reply.author.full_name }} {% if reply.author.is_staff %}(Staff){% endif %}</span>
+        <span class="text-gray-600 text-xs">{{ reply.created_at|timesince }} ago</span>
+      </div>
+      <p class="text-gray-300 text-sm">{{ reply.message }}</p>
+    </div>
+    {% endif %}
+    {% endfor %}
+  </div>
+  {% if ticket.status != 'closed' %}
+  <div class="card">
+    <form id="reply-form" class="space-y-3">
+      <textarea id="reply-msg" placeholder="Write your reply..." rows="3" required class="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-sm resize-none focus:border-green-500 outline-none"></textarea>
+      <button type="submit" class="bg-gradient-to-r from-green-500 to-emerald-600 text-white font-semibold px-5 py-2.5 rounded-xl text-sm"><i class="fas fa-reply mr-1"></i>Reply</button>
+    </form>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+{% block extra_scripts %}
+<script>
+document.getElementById('reply-form')?.addEventListener('submit',async(e)=>{e.preventDefault();
+  try{const r=await apiFetch('/api/support/tickets/{{ ticket.pk }}/reply/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:document.getElementById('reply-msg').value})});
+  if(r.ok||r.status===201)window.location.reload();else alert('Error sending reply.');}catch(ex){alert('Network error.');}
+});
+</script>
+{% endblock %}

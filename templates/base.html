@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en" class="dark" data-theme="dark">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="description" content="AI Voice Data Marketplace — Earn money by recording voice conversations for AI training datasets."/>
+  <title>{% block title %}{{ SITE_NAME }}{% endblock %}</title>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'sans-serif'] },
+          colors: {
+            brand: {
+              50: '#f0fdf4', 100: '#dcfce7', 200: '#bbf7d0',
+              300: '#86efac', 400: '#4ade80', 500: '#22c55e',
+              600: '#16a34a', 700: '#15803d', 800: '#166534', 900: '#14532d',
+            },
+          },
+          animation: {
+            'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+            'fade-in': 'fadeIn 0.3s ease-in-out',
+            'slide-up': 'slideUp 0.4s ease-out',
+          },
+          keyframes: {
+            fadeIn: { '0%': { opacity: '0' }, '100%': { opacity: '1' } },
+            slideUp: { '0%': { transform: 'translateY(20px)', opacity: '0' }, '100%': { transform: 'translateY(0)', opacity: '1' } },
+          },
+        },
+      },
+    };
+  </script>
+
+  <!-- Custom CSS -->
+  <link rel="stylesheet" href="{% load static %}{% static 'css/main.css' %}">
+
+  <!-- Font Awesome -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+
+  {% block extra_head %}{% endblock %}
+</head>
+<body class="bg-gray-950 text-gray-100 font-sans min-h-screen flex flex-col antialiased" data-initiator="{% if is_initiator %}true{% else %}false{% endif %}">
+
+  <!-- ─── Top Navigation ──────────────────────────────────────── -->
+  {% if user.is_authenticated %}
+  <nav class="fixed top-0 left-0 right-0 z-50 bg-gray-900/95 backdrop-blur-md border-b border-gray-800 shadow-lg">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex items-center justify-between h-16">
+
+        <!-- Logo -->
+        <a href="/dashboard/" class="flex items-center gap-2 group">
+          <div class="w-9 h-9 bg-gradient-to-br from-green-400 to-emerald-600 rounded-xl flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
+            <i class="fas fa-microphone text-white text-sm"></i>
+          </div>
+          <span class="text-lg font-bold bg-gradient-to-r from-green-400 to-emerald-500 bg-clip-text text-transparent">VoiceMarket</span>
+        </a>
+
+        <!-- Desktop Nav -->
+        <div class="hidden md:flex items-center gap-1">
+          <a href="/dashboard/" class="nav-link {% if request.path == '/dashboard/' %}active{% endif %}">
+            <i class="fas fa-home"></i> Dashboard
+          </a>
+          <a href="/recordings/" class="nav-link">
+            <i class="fas fa-microphone"></i> Record
+          </a>
+          <a href="/jobs/" class="nav-link">
+            <i class="fas fa-briefcase"></i> Jobs
+          </a>
+          <a href="/wallet/" class="nav-link">
+            <i class="fas fa-wallet"></i> Wallet
+          </a>
+          <a href="/leaderboard/" class="nav-link">
+            <i class="fas fa-trophy"></i> Leaderboard
+          </a>
+          <a href="/support/" class="nav-link">
+            <i class="fas fa-headset"></i> Support
+          </a>
+          {% if user.is_staff %}
+          <a href="/admin/" class="nav-link">
+            <i class="fas fa-shield-halved"></i> Portal
+          </a>
+          {% endif %}
+        </div>
+
+        <!-- Right Section -->
+        <div class="flex items-center gap-3">
+          <!-- Notification Bell -->
+          <div class="relative">
+            <button id="notif-btn" class="w-9 h-9 rounded-xl bg-gray-800 hover:bg-gray-700 flex items-center justify-center transition-colors relative">
+              <i class="fas fa-bell text-gray-300"></i>
+              {% if unread_notification_count %}
+              <span id="notif-badge" class="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-xs flex items-center justify-center font-bold text-white">
+                {{ unread_notification_count }}
+              </span>
+              {% endif %}
+            </button>
+            <!-- Notification Dropdown -->
+            <div id="notif-dropdown" class="hidden absolute right-0 top-12 w-80 bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl overflow-hidden z-50">
+              <div class="p-4 border-b border-gray-800 flex justify-between items-center">
+                <span class="font-semibold">Notifications</span>
+                <button id="mark-all-read" class="text-xs text-green-400 hover:text-green-300">Mark all read</button>
+              </div>
+              <div id="notif-list" class="max-h-72 overflow-y-auto">
+                <div class="p-4 text-center text-gray-500 text-sm">Loading...</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Online Indicator -->
+          <div class="flex items-center gap-1.5">
+            <div class="w-2.5 h-2.5 bg-green-400 rounded-full animate-pulse-slow shadow-green-400/50 shadow-sm"></div>
+            <span class="text-xs text-gray-400 hidden sm:block">Online</span>
+          </div>
+
+          <!-- User Avatar Dropdown -->
+          <div class="relative">
+            <button id="user-menu-btn" class="flex items-center gap-2 rounded-xl px-2 py-1 hover:bg-gray-800 transition-colors">
+              {% if user.profile_photo %}
+                <img src="{{ user.profile_photo.url }}" class="w-8 h-8 rounded-full object-cover ring-2 ring-green-500/40" alt="Avatar">
+              {% else %}
+                <div class="w-8 h-8 rounded-full bg-gradient-to-br from-green-400 to-emerald-600 flex items-center justify-center text-white font-bold text-sm">
+                  {{ user.short_name|first|upper }}
+                </div>
+              {% endif %}
+              <div class="hidden sm:block text-left">
+                <p class="text-sm font-medium leading-none">{{ user.short_name }}</p>
+                <p class="text-xs text-green-400 capitalize">{{ user.level }}</p>
+              </div>
+              <i class="fas fa-chevron-down text-xs text-gray-400"></i>
+            </button>
+            <div id="user-menu" class="hidden absolute right-0 top-12 w-48 bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl overflow-hidden z-50">
+              <a href="/profile/" class="flex items-center gap-3 px-4 py-3 hover:bg-gray-800 transition-colors">
+                <i class="fas fa-user text-gray-400 w-4"></i>
+                <span class="text-sm">My Profile</span>
+              </a>
+              <a href="/wallet/" class="flex items-center gap-3 px-4 py-3 hover:bg-gray-800 transition-colors">
+                <i class="fas fa-wallet text-gray-400 w-4"></i>
+                <span class="text-sm">Wallet</span>
+              </a>
+              <div class="border-t border-gray-800"></div>
+              <a href="/logout/" class="w-full flex items-center gap-3 px-4 py-3 hover:bg-red-900/30 transition-colors text-red-400">
+                <i class="fas fa-sign-out-alt w-4"></i>
+                <span class="text-sm">Logout</span>
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ─── Main Layout ─────────────────────────────────────────── -->
+  <div class="flex pt-16 min-h-screen">
+
+    <!-- Sidebar -->
+    <aside class="hidden lg:flex flex-col w-64 fixed left-0 top-16 bottom-0 bg-gray-900/80 border-r border-gray-800 p-4 overflow-y-auto">
+      <!-- Online users quick panel -->
+      <div class="mb-6">
+        <div class="flex items-center justify-between mb-3">
+          <p class="text-xs font-semibold text-gray-500 uppercase tracking-widest">Online Now</p>
+          <span id="online-count" class="text-xs bg-green-500/20 text-green-400 px-2 py-0.5 rounded-full">0</span>
+        </div>
+        <div id="online-users-list" class="space-y-2">
+          <!-- Populated by WebSocket -->
+        </div>
+      </div>
+
+      <div class="border-t border-gray-800 pt-4 mb-4">
+        <p class="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">Quick Search</p>
+        <div class="relative">
+          <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-xs"></i>
+          <input id="user-search" type="text" placeholder="Search users..."
+            class="w-full bg-gray-800 text-sm pl-8 pr-4 py-2 rounded-xl border border-gray-700 focus:border-green-500 outline-none transition-colors placeholder-gray-600">
+        </div>
+        <div id="search-results" class="mt-2 space-y-1"></div>
+      </div>
+
+      <!-- User stats -->
+      <div class="mt-auto bg-gray-800/50 rounded-2xl p-4 border border-gray-700/50">
+        <div class="text-center mb-3">
+          {% if user.profile_photo %}
+            <img src="{{ user.profile_photo.url }}" class="w-12 h-12 rounded-full mx-auto mb-2 ring-2 ring-green-500/30">
+          {% else %}
+            <div class="w-12 h-12 rounded-full bg-gradient-to-br from-green-400 to-emerald-600 flex items-center justify-center text-white font-bold text-xl mx-auto mb-2">
+              {{ user.short_name|first|upper }}
+            </div>
+          {% endif %}
+          <p class="font-semibold text-sm">{{ user.full_name }}</p>
+          <p class="text-xs text-green-400 capitalize flex items-center justify-center gap-1">
+            <i class="fas fa-star text-yellow-400"></i> {{ user.level|title }}
+          </p>
+        </div>
+        <div class="grid grid-cols-2 gap-2 text-center">
+          <div class="bg-gray-700/50 rounded-xl p-2">
+            <p class="text-xs text-gray-400">Rating</p>
+            <p class="font-bold text-yellow-400">{{ user.reputation_score|floatformat:1 }}⭐</p>
+          </div>
+          <div class="bg-gray-700/50 rounded-xl p-2">
+            <p class="text-xs text-gray-400">Streak</p>
+            <p class="font-bold text-orange-400">{{ user.login_streak }}🔥</p>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="flex-1 lg:ml-64 p-4 sm:p-6 lg:p-8 max-w-full overflow-x-hidden">
+      {% if messages %}
+        {% for message in messages %}
+          <div class="mb-4 p-4 rounded-xl border animate-fade-in
+            {% if message.tags == 'error' %}bg-red-900/30 border-red-700 text-red-300
+            {% elif message.tags == 'success' %}bg-green-900/30 border-green-700 text-green-300
+            {% else %}bg-blue-900/30 border-blue-700 text-blue-300{% endif %}">
+            <i class="fas fa-{% if message.tags == 'error' %}exclamation-circle{% elif message.tags == 'success' %}check-circle{% else %}info-circle{% endif %} mr-2"></i>
+            {{ message }}
+          </div>
+        {% endfor %}
+      {% endif %}
+
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+
+  {% else %}
+  <!-- Non-authenticated main content -->
+  <main class="flex-1">
+    {% block auth_content %}{% endblock %}
+  </main>
+  {% endif %}
+
+  <!-- ─── Recording Request Popup ────────────────────────────── -->
+  <div id="recording-popup" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in">
+    <div class="bg-gray-900 border border-gray-700 rounded-3xl p-8 max-w-md w-full mx-4 shadow-2xl animate-slide-up">
+      <div class="text-center">
+        <div class="w-16 h-16 bg-gradient-to-br from-green-400 to-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse-slow">
+          <i class="fas fa-microphone text-white text-2xl"></i>
+        </div>
+        <h2 class="text-xl font-bold mb-2">Recording Request</h2>
+        <p id="popup-message" class="text-gray-400 mb-6">Someone wants to record with you!</p>
+        <div class="flex gap-3">
+          <button id="accept-recording-btn" class="flex-1 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-400 hover:to-emerald-500 text-white font-semibold py-3 rounded-xl transition-all transform hover:scale-105 shadow-lg shadow-green-900/50">
+            <i class="fas fa-check mr-2"></i>Accept
+          </button>
+          <button id="reject-recording-btn" class="flex-1 bg-gray-800 hover:bg-gray-700 text-gray-300 font-semibold py-3 rounded-xl transition-colors">
+            <i class="fas fa-times mr-2"></i>Decline
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Scripts ─────────────────────────────────────────────── -->
+  {% if user.is_authenticated %}
+  <script>
+    const CURRENT_USER_ID = "{{ user.pk }}";
+    const ACCESS_TOKEN = localStorage.getItem('access_token') || '';
+    const WS_PROTOCOL = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  </script>
+  <script src="{% static 'js/websocket.js' %}"></script>
+  <script src="{% static 'js/ui.js' %}"></script>
+  {% endif %}
+
+  {% block extra_scripts %}{% endblock %}
+</body>
+</html>

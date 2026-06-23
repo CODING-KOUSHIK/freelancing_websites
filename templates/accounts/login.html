@@ -1,0 +1,153 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Login — VoiceMarket</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>tailwind.config={darkMode:'class',theme:{extend:{fontFamily:{sans:['Inter','sans-serif']}}}};</script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+</head>
+<body class="bg-gray-950 text-gray-100 font-sans min-h-screen flex items-center justify-center px-4 antialiased">
+  <div class="w-full max-w-md">
+    <div class="text-center mb-8">
+      <a href="/" class="inline-flex items-center gap-2 mb-4">
+        <div class="w-10 h-10 bg-gradient-to-br from-green-400 to-emerald-600 rounded-xl flex items-center justify-center">
+          <i class="fas fa-microphone text-white"></i>
+        </div>
+        <span class="text-xl font-bold bg-gradient-to-r from-green-400 to-emerald-500 bg-clip-text text-transparent">VoiceMarket</span>
+      </a>
+      <h1 class="text-3xl font-bold">Welcome back</h1>
+      <p class="text-gray-500 mt-1">Sign in to your account</p>
+    </div>
+
+    <div class="bg-gray-900 border border-gray-800 rounded-3xl p-8 shadow-xl">
+
+      <div id="login-error" class="hidden mb-4 p-3 bg-red-900/30 border border-red-700 text-red-300 text-sm rounded-xl"></div>
+
+      {% if error %}
+      <div class="mb-4 p-3 bg-red-900/30 border border-red-700 text-red-300 text-sm rounded-xl">
+        <i class="fas fa-exclamation-circle mr-2"></i>{{ error }}
+      </div>
+      {% endif %}
+
+      {% if messages %}
+        {% for msg in messages %}
+        <div class="mb-4 p-3 bg-green-900/30 border border-green-700 text-green-300 text-sm rounded-xl">
+          <i class="fas fa-check-circle mr-2"></i>{{ msg }}
+        </div>
+        {% endfor %}
+      {% endif %}
+
+      <!-- JS login stores JWT tokens for API requests, then creates the Django session -->
+      <form method="POST" action="/login/" id="login-form" class="space-y-5">
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.GET.next }}">
+        <div>
+          <label class="block text-sm font-medium text-gray-400 mb-1.5">Email</label>
+          <div class="relative">
+            <i class="fas fa-envelope absolute left-4 top-1/2 -translate-y-1/2 text-gray-500"></i>
+            <input type="email" name="email" id="login-email" required placeholder="you@email.com"
+              class="w-full bg-gray-800 border border-gray-700 rounded-xl pl-11 pr-4 py-3 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500 outline-none transition-colors"/>
+          </div>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-400 mb-1.5">Password</label>
+          <div class="relative">
+            <i class="fas fa-lock absolute left-4 top-1/2 -translate-y-1/2 text-gray-500"></i>
+            <input type="password" name="password" id="login-password" required placeholder="••••••••"
+              class="w-full bg-gray-800 border border-gray-700 rounded-xl pl-11 pr-4 py-3 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500 outline-none transition-colors"/>
+          </div>
+        </div>
+        <div class="flex justify-between items-center text-sm">
+          <label class="flex items-center gap-2 text-gray-400 cursor-pointer">
+            <input type="checkbox" class="rounded border-gray-600 bg-gray-800 text-green-500"> Remember me
+          </label>
+          <a href="/forgot-password/" class="text-green-400 hover:text-green-300">Forgot password?</a>
+        </div>
+        <button type="submit" id="login-btn"
+          class="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-400 hover:to-emerald-500 text-white font-semibold py-3 rounded-xl transition-all transform hover:scale-[1.02] shadow-lg shadow-green-900/30">
+          <i class="fas fa-sign-in-alt mr-2"></i> Sign In
+        </button>
+      </form>
+    </div>
+    <p class="text-center text-gray-500 text-sm mt-6">
+      Don't have an account?
+      <a href="/register/" class="text-green-400 hover:text-green-300 font-medium">Create one</a>
+    </p>
+  </div>
+  <script>
+    const loginForm = document.getElementById('login-form');
+    const loginBtn = document.getElementById('login-btn');
+    const loginError = document.getElementById('login-error');
+
+    function showLoginError(message) {
+      if (!loginError) return;
+      loginError.textContent = message;
+      loginError.classList.remove('hidden');
+    }
+
+    function clearLoginError() {
+      if (!loginError) return;
+      loginError.textContent = '';
+      loginError.classList.add('hidden');
+    }
+
+    function extractApiMessage(data, fallback) {
+      if (!data) return fallback;
+      if (typeof data === 'string') return data;
+      if (data.detail) return data.detail;
+      if (data.error) return data.error;
+      if (data.non_field_errors) return Array.isArray(data.non_field_errors) ? data.non_field_errors.join(' ') : data.non_field_errors;
+      const values = Object.values(data).flat().filter(Boolean);
+      return values.length ? values.join(' ') : fallback;
+    }
+
+    loginForm.addEventListener('submit', async function(event) {
+      event.preventDefault();
+      clearLoginError();
+
+      const email = document.getElementById('login-email').value.trim();
+      const password = document.getElementById('login-password').value;
+      const nextUrl = new URLSearchParams(window.location.search).get('next') || '/dashboard/';
+
+      loginBtn.disabled = true;
+      loginBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Signing in...';
+
+      try {
+        const authRes = await fetch('/api/auth/login/', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        });
+        const authData = await authRes.json().catch(() => ({}));
+
+        if (!authRes.ok) {
+          showLoginError(extractApiMessage(authData, 'Invalid email or password.'));
+          loginBtn.disabled = false;
+          loginBtn.innerHTML = '<i class="fas fa-sign-in-alt mr-2"></i> Sign In';
+          return;
+        }
+
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('refresh_token');
+        if (authData.access) localStorage.setItem('access_token', authData.access);
+        if (authData.refresh) localStorage.setItem('refresh_token', authData.refresh);
+
+        await fetch('/session-login/', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        });
+
+        window.location.href = nextUrl;
+      } catch (error) {
+        showLoginError('Network error. Please try again.');
+        loginBtn.disabled = false;
+        loginBtn.innerHTML = '<i class="fas fa-sign-in-alt mr-2"></i> Sign In';
+      }
+    });
+  </script>
+</body>
+</html>

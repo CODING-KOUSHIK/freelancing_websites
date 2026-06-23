@@ -1,0 +1,48 @@
+# ─── Python ────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+pip-wheel-metadata/
+
+# ─── Virtual environments ──────────────────────────────────────
+.venv/
+venv/
+env/
+
+# ─── Django runtime ───────────────────────────────────────────
+db.sqlite3
+*.sqlite3
+media/
+staticfiles/
+
+# ─── Logs ─────────────────────────────────────────────────────
+*.log
+logs/
+
+# ─── Secrets — never commit real .env ─────────────────────────
+.env
+# .env.docker is committed so Docker works out of the box
+# .env.example is committed as a template
+
+# ─── OS / editor ──────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ─── Node ─────────────────────────────────────────────────────
+node_modules/
+dist/
+build/
+
+# ─── Agent workspace ──────────────────────────────────────────
+.agents/
+.gitmeta/

@@ -1,0 +1,157 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="description" content="AI Voice Data Marketplace - voice recording and enterprise freelancing in one platform."/>
+  <title>AI Voice Marketplace - Enterprise Freelancing</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'sans-serif'] }
+        }
+      }
+    };
+  </script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+</head>
+<body class="bg-slate-950 text-slate-100 font-sans antialiased">
+  <div class="absolute inset-0 -z-10 overflow-hidden">
+    <div class="absolute left-[-10%] top-[-10%] h-72 w-72 rounded-full bg-emerald-500/20 blur-3xl"></div>
+    <div class="absolute right-[-10%] top-[15%] h-80 w-80 rounded-full bg-cyan-500/10 blur-3xl"></div>
+    <div class="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(16,185,129,0.16),_transparent_45%)]"></div>
+  </div>
+
+  <nav class="fixed top-0 w-full z-50 border-b border-white/5 bg-slate-950/80 backdrop-blur">
+    <div class="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
+      <a href="/" class="flex items-center gap-3">
+        <div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-400 to-teal-600 shadow-lg shadow-emerald-900/30">
+          <i class="fa-solid fa-wave-square text-white"></i>
+        </div>
+        <div>
+          <p class="text-xs uppercase tracking-[0.28em] text-emerald-300">AI Voice Data Marketplace</p>
+          <p class="text-xs text-slate-400">Voice, tasks, wallet, support</p>
+        </div>
+      </a>
+      <div class="flex items-center gap-3">
+        <a href="/about/" class="hidden text-sm text-slate-300 hover:text-white md:inline">About</a>
+        <a href="/jobs/" class="hidden text-sm text-slate-300 hover:text-white md:inline">Jobs</a>
+        <a href="/admin/" class="hidden text-sm text-slate-300 hover:text-white md:inline">Portal</a>
+        <a href="/login/" class="px-5 py-2 text-sm text-slate-300 hover:text-white">Login</a>
+        <a href="/register/" class="rounded-xl bg-white px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-300">Get Started</a>
+      </div>
+    </div>
+  </nav>
+
+  <main class="mx-auto max-w-7xl px-4 pb-20 pt-28 sm:px-6 lg:px-8">
+    <section class="grid items-center gap-12 lg:grid-cols-[1.05fr,0.95fr]">
+      <div>
+        <div class="inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-300">
+          <i class="fa-solid fa-shield-halved"></i>
+          Voice recording plus enterprise job workflows
+        </div>
+        <h1 class="mt-6 max-w-3xl text-5xl font-black tracking-tight text-white sm:text-7xl">
+          Work on voice.
+          <span class="block bg-gradient-to-r from-emerald-400 via-teal-400 to-cyan-400 bg-clip-text text-transparent">Ship tasks.</span>
+          Earn reliably.
+        </h1>
+        <p class="mt-6 max-w-2xl text-lg leading-8 text-slate-300">
+          The platform now combines recording sessions, surveys, annotation, testing, recruiter jobs, wallets, support, and a custom staff portal in one modular system.
+        </p>
+        <div class="mt-8 flex flex-col gap-4 sm:flex-row">
+          <a href="/register/" class="inline-flex items-center justify-center rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 px-6 py-3 font-semibold text-white shadow-lg shadow-emerald-900/30 hover:from-emerald-400 hover:to-teal-500">
+            <i class="fa-solid fa-briefcase mr-2"></i>
+            Start earning
+          </a>
+          <a href="/jobs/" class="inline-flex items-center justify-center rounded-2xl border border-white/10 bg-white/5 px-6 py-3 font-semibold text-slate-200 hover:border-emerald-400/30 hover:bg-emerald-500/10">
+            Browse jobs
+          </a>
+        </div>
+
+        <div class="mt-10 grid max-w-xl grid-cols-3 gap-4">
+          <div class="rounded-3xl border border-white/5 bg-white/5 p-4">
+            <p class="text-3xl font-black text-emerald-300">10+</p>
+            <p class="mt-1 text-sm text-slate-400">Task types</p>
+          </div>
+          <div class="rounded-3xl border border-white/5 bg-white/5 p-4">
+            <p class="text-3xl font-black text-teal-300">1</p>
+            <p class="mt-1 text-sm text-slate-400">Custom portal</p>
+          </div>
+          <div class="rounded-3xl border border-white/5 bg-white/5 p-4">
+            <p class="text-3xl font-black text-cyan-300">100%</p>
+            <p class="mt-1 text-sm text-slate-400">Modular</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid gap-4 sm:grid-cols-2">
+        <div class="rounded-3xl border border-white/5 bg-white/5 p-6">
+          <div class="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-500/10 text-emerald-300">
+            <i class="fa-solid fa-microphone"></i>
+          </div>
+          <h3 class="text-xl font-bold text-white">Voice Recording</h3>
+          <p class="mt-2 text-sm leading-6 text-slate-400">Keep the original voice workflow intact for AI training sessions.</p>
+        </div>
+        <div class="rounded-3xl border border-white/5 bg-white/5 p-6">
+          <div class="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-cyan-500/10 text-cyan-300">
+            <i class="fa-solid fa-clipboard-list"></i>
+          </div>
+          <h3 class="text-xl font-bold text-white">Job Marketplace</h3>
+          <p class="mt-2 text-sm leading-6 text-slate-400">Run surveys, annotation, testing, research, and recruiter-led assignments.</p>
+        </div>
+        <div class="rounded-3xl border border-white/5 bg-white/5 p-6">
+          <div class="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-300">
+            <i class="fa-solid fa-wallet"></i>
+          </div>
+          <h3 class="text-xl font-bold text-white">Wallet Engine</h3>
+          <p class="mt-2 text-sm leading-6 text-slate-400">Support pending, processing, bonus, referral, and recharge plan workflows.</p>
+        </div>
+        <div class="rounded-3xl border border-white/5 bg-white/5 p-6">
+          <div class="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-500/10 text-violet-300">
+            <i class="fa-solid fa-chart-line"></i>
+          </div>
+          <h3 class="text-xl font-bold text-white">Custom Portal</h3>
+          <p class="mt-2 text-sm leading-6 text-slate-400">Operate jobs, tickets, analytics, and settings from a custom admin portal.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="mt-24">
+      <div class="flex items-end justify-between gap-4">
+        <div>
+          <p class="text-sm uppercase tracking-[0.3em] text-emerald-300">How it works</p>
+          <h2 class="mt-2 text-3xl font-black text-white">Built for workers, recruiters, and operators</h2>
+        </div>
+        <a href="/faq/" class="text-sm text-slate-400 hover:text-white">Read FAQ</a>
+      </div>
+      <div class="mt-8 grid gap-4 md:grid-cols-3">
+        <div class="rounded-3xl border border-white/5 bg-white/5 p-6">
+          <p class="text-xs uppercase tracking-[0.25em] text-slate-500">Step 1</p>
+          <h3 class="mt-3 text-xl font-bold text-white">Create your profile</h3>
+          <p class="mt-2 text-sm leading-6 text-slate-400">Register once, verify email, and build a profile with skills, languages, and KYC.</p>
+        </div>
+        <div class="rounded-3xl border border-white/5 bg-white/5 p-6">
+          <p class="text-xs uppercase tracking-[0.25em] text-slate-500">Step 2</p>
+          <h3 class="mt-3 text-xl font-bold text-white">Apply or assign work</h3>
+          <p class="mt-2 text-sm leading-6 text-slate-400">Workers apply to jobs. Recruiters publish jobs with dynamic fields and media attachments.</p>
+        </div>
+        <div class="rounded-3xl border border-white/5 bg-white/5 p-6">
+          <p class="text-xs uppercase tracking-[0.25em] text-slate-500">Step 3</p>
+          <h3 class="mt-3 text-xl font-bold text-white">Earn and monitor</h3>
+          <p class="mt-2 text-sm leading-6 text-slate-400">Track wallet balances, withdrawals, support tickets, and marketplace analytics from the portal.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="border-t border-white/5 py-8 text-center text-sm text-slate-500">
+    <p>&copy; 2026 AI Voice Data Marketplace. All rights reserved.</p>
+  </footer>
+</body>
+</html>

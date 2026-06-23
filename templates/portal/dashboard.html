@@ -1,0 +1,314 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Custom enterprise administration portal for AI Voice Data Marketplace." />
+  <title>Admin Portal - AI Voice Data Marketplace</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'sans-serif'] }
+        }
+      }
+    };
+  </script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <div class="fixed inset-0 -z-10 bg-[radial-gradient(circle_at_top_right,rgba(16,185,129,0.14),transparent_35%),radial-gradient(circle_at_bottom_left,rgba(34,197,94,0.10),transparent_30%)]"></div>
+
+  <div class="flex min-h-screen">
+    <aside class="hidden w-72 shrink-0 border-r border-white/5 bg-slate-950/90 px-5 py-6 lg:flex lg:flex-col">
+      <div class="flex items-center gap-3">
+        <div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-400 to-teal-600 shadow-lg shadow-emerald-900/30">
+          <i class="fa-solid fa-shield-halved text-white"></i>
+        </div>
+        <div>
+          <p class="text-xs uppercase tracking-[0.3em] text-emerald-300">Portal</p>
+          <p class="text-lg font-bold text-white">Marketplace Admin</p>
+        </div>
+      </div>
+
+      <nav class="mt-8 space-y-2 text-sm">
+        {% for key, label in sections %}
+          <a href="#{{ key }}" class="flex items-center justify-between rounded-2xl border border-white/5 bg-white/5 px-4 py-3 text-slate-300 hover:border-emerald-400/20 hover:bg-emerald-500/10 hover:text-white">
+            <span>{{ label }}</span>
+            <i class="fa-solid fa-arrow-right text-xs"></i>
+          </a>
+        {% endfor %}
+      </nav>
+
+      <div class="mt-auto rounded-3xl border border-white/5 bg-white/5 p-4">
+        <p class="text-xs uppercase tracking-[0.25em] text-slate-500">Quick links</p>
+        <div class="mt-3 space-y-2 text-sm">
+          <a href="/admin/jobs/" class="block text-slate-300 hover:text-white">Jobs management</a>
+          <a href="/admin/wallet/" class="block text-slate-300 hover:text-white">Wallet management</a>
+          <a href="/admin/support/" class="block text-slate-300 hover:text-white">Support center</a>
+          <a href="/admin/settings/" class="block text-slate-300 hover:text-white">Settings engine</a>
+        </div>
+      </div>
+    </aside>
+
+    <main class="flex-1 px-4 py-6 sm:px-6 lg:px-8">
+      <div class="mx-auto max-w-7xl space-y-8">
+        <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p class="text-xs uppercase tracking-[0.35em] text-emerald-300">Custom administration portal</p>
+            <h1 class="mt-2 text-3xl font-black text-white sm:text-5xl">Enterprise marketplace control center</h1>
+            <p class="mt-3 max-w-3xl text-slate-400">Operate users, recordings, jobs, tickets, wallets, and settings from a fully custom UI. The default Django admin is not exposed.</p>
+          </div>
+          <div class="flex flex-wrap gap-3">
+            <a href="/jobs/" class="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold text-slate-200 hover:border-emerald-400/30 hover:bg-emerald-500/10">Marketplace</a>
+            <a href="/support/" class="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold text-slate-200 hover:border-emerald-400/30 hover:bg-emerald-500/10">Support</a>
+            <a href="/wallet/" class="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold text-slate-200 hover:border-emerald-400/30 hover:bg-emerald-500/10">Wallet</a>
+          </div>
+        </div>
+
+        <section id="dashboard" class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div class="rounded-3xl border border-white/5 bg-white/5 p-5">
+            <p class="text-sm text-slate-400">Total users</p>
+            <p class="mt-2 text-3xl font-black text-white" id="total-users">{{ metrics.total_users }}</p>
+            <p class="mt-1 text-xs text-slate-500">Active: <span id="active-users">{{ metrics.active_users }}</span></p>
+          </div>
+          <div class="rounded-3xl border border-white/5 bg-white/5 p-5">
+            <p class="text-sm text-slate-400">Online users</p>
+            <p class="mt-2 text-3xl font-black text-white" id="online-users">{{ metrics.online_users }}</p>
+            <p class="mt-1 text-xs text-slate-500">New registrations today: <span id="new-registrations">{{ metrics.new_registrations }}</span></p>
+          </div>
+          <div class="rounded-3xl border border-white/5 bg-white/5 p-5">
+            <p class="text-sm text-slate-400">Earnings</p>
+            <p class="mt-2 text-3xl font-black text-white" id="earnings">₹{{ metrics.earnings }}</p>
+            <p class="mt-1 text-xs text-slate-500">Revenue: ₹<span id="revenue">{{ metrics.revenue }}</span></p>
+          </div>
+          <div class="rounded-3xl border border-white/5 bg-white/5 p-5">
+            <p class="text-sm text-slate-400">Open tickets</p>
+            <p class="mt-2 text-3xl font-black text-white" id="open-tickets">{{ metrics.open_tickets }}</p>
+            <p class="mt-1 text-xs text-slate-500">Pending withdrawals: <span id="pending-withdrawals">{{ metrics.pending_withdrawals }}</span></p>
+          </div>
+        </section>
+
+        <section class="grid gap-4 xl:grid-cols-[1.3fr,0.7fr]">
+          <div class="rounded-3xl border border-white/5 bg-white/5 p-5">
+            <div class="flex items-center justify-between gap-4">
+              <div>
+                <p class="text-xs uppercase tracking-[0.3em] text-slate-500">Analytics</p>
+                <h2 class="mt-1 text-xl font-bold text-white">Revenue and task mix</h2>
+              </div>
+            </div>
+            <div class="mt-6 grid gap-6 lg:grid-cols-2">
+              <canvas id="category-chart" height="180"></canvas>
+              <canvas id="task-chart" height="180"></canvas>
+            </div>
+          </div>
+
+          <div class="space-y-4">
+            <div class="rounded-3xl border border-white/5 bg-white/5 p-5">
+              <p class="text-xs uppercase tracking-[0.3em] text-slate-500">Platform</p>
+              <div class="mt-4 grid grid-cols-2 gap-3 text-sm">
+                <div class="rounded-2xl bg-slate-900/70 p-3">
+                  <p class="text-slate-400">Completed tasks</p>
+                  <p class="mt-1 text-xl font-bold text-white" id="completed-tasks">{{ metrics.completed_tasks }}</p>
+                </div>
+                <div class="rounded-2xl bg-slate-900/70 p-3">
+                  <p class="text-slate-400">Recording hours</p>
+                  <p class="mt-1 text-xl font-bold text-white" id="recording-hours">{{ metrics.voice_recording_hours }}</p>
+                </div>
+                <div class="rounded-2xl bg-slate-900/70 p-3">
+                  <p class="text-slate-400">Completed withdrawals</p>
+                  <p class="mt-1 text-xl font-bold text-white" id="completed-withdrawals">₹{{ metrics.completed_withdrawals }}</p>
+                </div>
+                <div class="rounded-2xl bg-slate-900/70 p-3">
+                  <p class="text-slate-400">Settings groups</p>
+                  <p class="mt-1 text-xl font-bold text-white">{{ metrics.settings_groups }}</p>
+                </div>
+              </div>
+            </div>
+            <div class="rounded-3xl border border-white/5 bg-white/5 p-5">
+              <p class="text-xs uppercase tracking-[0.3em] text-slate-500">Snapshots</p>
+              <div class="mt-3 flex items-center justify-between">
+                <span class="text-sm text-slate-300">Stored analytics snapshots</span>
+                <span class="text-sm font-semibold text-white" id="snapshot-count">{{ metrics.snapshot_count }}</span>
+              </div>
+              <div class="mt-2 text-xs text-slate-500">Last snapshot: <span id="last-snapshot">{{ metrics.last_snapshot|default:"none" }}</span></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="grid gap-4 xl:grid-cols-3">
+          <div id="users" class="rounded-3xl border border-white/5 bg-white/5 p-5">
+            <p class="text-xs uppercase tracking-[0.3em] text-slate-500">Top earners</p>
+            <div class="mt-4 space-y-3">
+              {% for row in metrics.top_earners %}
+                <div class="flex items-center justify-between rounded-2xl bg-slate-900/70 px-4 py-3">
+                  <div>
+                    <p class="font-semibold text-white">{{ row.name }}</p>
+                    <p class="text-xs text-slate-500">{{ row.email }}</p>
+                  </div>
+                  <div class="text-right">
+                    <p class="font-semibold text-emerald-300">₹{{ row.balance }}</p>
+                    <p class="text-xs text-slate-500">Available ₹{{ row.available_balance }}</p>
+                  </div>
+                </div>
+              {% empty %}
+                <p class="text-sm text-slate-500">No earners yet.</p>
+              {% endfor %}
+            </div>
+          </div>
+
+          <div id="jobs" class="rounded-3xl border border-white/5 bg-white/5 p-5">
+            <p class="text-xs uppercase tracking-[0.3em] text-slate-500">Top recruiters</p>
+            <div class="mt-4 space-y-3">
+              {% for row in metrics.top_recruiters %}
+                <div class="rounded-2xl bg-slate-900/70 px-4 py-3">
+                  <div class="flex items-center justify-between">
+                    <div>
+                      <p class="font-semibold text-white">{{ row.name }}</p>
+                      <p class="text-xs text-slate-500">{{ row.email }}</p>
+                    </div>
+                    <p class="text-xs text-slate-400">{{ row.jobs }} jobs</p>
+                  </div>
+                  <p class="mt-2 text-xs text-slate-500">{{ row.completed }} completed applications</p>
+                </div>
+              {% empty %}
+                <p class="text-sm text-slate-500">No recruiters yet.</p>
+              {% endfor %}
+            </div>
+            <div class="mt-6 border-t border-white/5 pt-5">
+              <p class="text-xs uppercase tracking-[0.3em] text-slate-500">Recent jobs</p>
+              <div class="mt-4 space-y-3">
+                {% for job in metrics.recent_jobs %}
+                  <div class="rounded-2xl bg-slate-900/70 px-4 py-3">
+                    <div class="flex items-center justify-between gap-3">
+                      <div>
+                        <p class="font-semibold text-white">{{ job.title }}</p>
+                        <p class="text-xs text-slate-500">{{ job.category }} - {{ job.job_id }}</p>
+                      </div>
+                      <span class="text-xs text-emerald-300">{{ job.status|title }}</span>
+                    </div>
+                  </div>
+                {% empty %}
+                  <p class="text-sm text-slate-500">No jobs yet.</p>
+                {% endfor %}
+              </div>
+            </div>
+          </div>
+
+          <div id="wallet" class="rounded-3xl border border-white/5 bg-white/5 p-5">
+            <p class="text-xs uppercase tracking-[0.3em] text-slate-500">Top categories</p>
+            <div class="mt-4 space-y-3">
+              {% for row in metrics.top_categories %}
+                <div class="rounded-2xl bg-slate-900/70 px-4 py-3">
+                  <div class="flex items-center justify-between">
+                    <p class="font-semibold text-white">{{ row.name }}</p>
+                    <p class="text-xs text-slate-400">{{ row.jobs }} jobs</p>
+                  </div>
+                  <p class="mt-1 text-xs text-slate-500">{{ row.applications }} applications</p>
+                </div>
+              {% empty %}
+                <p class="text-sm text-slate-500">No categories yet.</p>
+              {% endfor %}
+            </div>
+          </div>
+        </section>
+
+        <section id="tickets" class="grid gap-4 xl:grid-cols-2">
+          <div class="rounded-3xl border border-white/5 bg-white/5 p-5">
+            <p class="text-xs uppercase tracking-[0.3em] text-slate-500">Recent tickets</p>
+            <div class="mt-4 space-y-3">
+              {% for ticket in metrics.recent_tickets %}
+                <div class="rounded-2xl bg-slate-900/70 px-4 py-3">
+                  <div>
+                    <div class="flex items-center justify-between gap-3">
+                      <div>
+                        <p class="font-semibold text-white">{{ ticket.title }}</p>
+                        <p class="text-xs text-slate-500">{{ ticket.ticket_number }}</p>
+                      </div>
+                      <span class="text-xs text-emerald-300">{{ ticket.status|title }}</span>
+                    </div>
+                    <p class="mt-2 text-xs text-slate-500">Priority: {{ ticket.priority|title }}{% if ticket.assigned_to %} - Assigned to {{ ticket.assigned_to }}{% endif %}</p>
+                  </div>
+                </div>
+              {% empty %}
+                <p class="text-sm text-slate-500">No tickets yet.</p>
+              {% endfor %}
+            </div>
+          </div>
+
+          <div id="settings" class="rounded-3xl border border-white/5 bg-white/5 p-5">
+            <p class="text-xs uppercase tracking-[0.3em] text-slate-500">Notifications</p>
+            <div class="mt-4 space-y-3">
+              {% for note in metrics.recent_notifications %}
+                <div class="rounded-2xl bg-slate-900/70 px-4 py-3">
+                  <div class="flex items-center justify-between">
+                    <p class="font-semibold text-white">{{ note.title }}</p>
+                    <span class="text-xs {% if note.is_read %}text-slate-500{% else %}text-emerald-300{% endif %}">
+                      {% if note.is_read %}Read{% else %}Unread{% endif %}
+                    </span>
+                  </div>
+                  <p class="mt-1 text-sm text-slate-400">{{ note.message }}</p>
+                </div>
+              {% empty %}
+                <p class="text-sm text-slate-500">No notifications yet.</p>
+              {% endfor %}
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const categoryData = {
+      labels: [{% for row in metrics.top_categories %}'{{ row.name|escapejs }}'{% if not forloop.last %}, {% endif %}{% endfor %}],
+      values: [{% for row in metrics.top_categories %}{{ row.applications }}{% if not forloop.last %}, {% endif %}{% endfor %}],
+    };
+    const taskData = {
+      labels: ['Open tickets', 'Pending withdrawals', 'Active recordings', 'Completed tasks'],
+      values: [{{ metrics.open_tickets }}, {{ metrics.pending_withdrawals }}, {{ metrics.active_recordings }}, {{ metrics.completed_tasks }}],
+    };
+
+    new Chart(document.getElementById('category-chart'), {
+      type: 'bar',
+      data: {
+        labels: categoryData.labels,
+        datasets: [{
+          label: 'Applications',
+          data: categoryData.values,
+          backgroundColor: 'rgba(52, 211, 153, 0.75)',
+          borderRadius: 12,
+        }],
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { display: false } },
+        scales: { y: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148, 163, 184, 0.12)' } }, x: { ticks: { color: '#94a3b8' }, grid: { display: false } } },
+      },
+    });
+
+    new Chart(document.getElementById('task-chart'), {
+      type: 'doughnut',
+      data: {
+        labels: taskData.labels,
+        datasets: [{
+          data: taskData.values,
+          backgroundColor: ['rgba(248, 113, 113, 0.7)', 'rgba(251, 191, 36, 0.75)', 'rgba(34, 197, 94, 0.75)', 'rgba(59, 130, 246, 0.75)'],
+        }],
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { position: 'bottom', labels: { color: '#cbd5e1' } },
+        },
+      },
+    });
+  </script>
+</body>
+</html>
