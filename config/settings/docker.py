@@ -22,6 +22,20 @@ STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 CELERY_TASK_ALWAYS_EAGER = False
 CELERY_TASK_EAGER_PROPAGATES = False
 
+# ─── Email ─────────────────────────────────────────────────────
+import os as _os
+_email_backend = _os.environ.get("EMAIL_BACKEND", "django.core.mail.backends.smtp.EmailBackend")
+
+if "anymail" in _email_backend or "resend" in _email_backend:
+    # Use Resend via django-anymail (works on Railway)
+    EMAIL_BACKEND = "anymail.backends.resend.EmailBackend"
+    ANYMAIL = {
+        "RESEND_API_KEY": _os.environ.get("RESEND_API_KEY", ""),
+    }
+else:
+    # Standard SMTP fallback (works locally)
+    EMAIL_BACKEND = _email_backend
+
 # ─── Logging ─────────────────────────────────────────────────────
 LOGGING = {
     "version": 1,
