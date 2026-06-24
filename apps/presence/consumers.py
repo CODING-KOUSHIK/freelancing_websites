@@ -82,6 +82,10 @@ class PresenceConsumer(AsyncWebsocketConsumer):
     async def presence_init(self, event):
         await self.send(text_data=json.dumps(event))
 
+    async def presence_refresh(self, event):
+        """Called when a recording session starts/ends — re-broadcast fresh online list."""
+        await self.broadcast_presence()
+
     # ─── DB helpers ───────────────────────────────────────────
 
     @database_sync_to_async
@@ -101,11 +105,26 @@ class PresenceConsumer(AsyncWebsocketConsumer):
     @database_sync_to_async
     def get_online_users(self):
         from apps.presence.models import UserPresence
+        from apps.recordings.models import RecordingSession
+        from django.db.models import Q
         from django.conf import settings
-        limit = getattr(settings, "MAX_ONLINE_USERS_DISPLAY", 10)
+
+        limit = getattr(settings, "MAX_ONLINE_USERS_DISPLAY", 20)
+
+        # Get IDs of users currently in an active recording session
+        busy_user_ids = set(
+            RecordingSession.objects.filter(
+                status__in=["requested", "accepted", "in_progress"]
+            ).values_list("user_a_id", "user_b_id")
+        )
+        # Flatten the list of tuples into a flat set
+        flat_busy_ids = {uid for pair in busy_user_ids for uid in pair if uid}
+
         presences = (
             UserPresence.objects
             .filter(is_online=True)
+            .exclude(user_id__in=flat_busy_ids)      # ← hide busy users
+            .exclude(user=self.user)                  # ← hide yourself
             .select_related("user")
             .order_by("-last_seen")[:limit]
         )

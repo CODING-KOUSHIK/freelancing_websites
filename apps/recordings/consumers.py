@@ -145,7 +145,6 @@ class RecordingConsumer(AsyncWebsocketConsumer):
         """Mark session as in_progress when user clicks Record button."""
         both = await self.check_both_connected()
         if not both:
-            # Safety check — shouldn't happen since JS only shows button after ready
             await self.send(text_data=json.dumps({
                 "type": "error",
                 "message": "Cannot start — waiting for partner to connect.",
@@ -161,6 +160,8 @@ class RecordingConsumer(AsyncWebsocketConsumer):
                 "started_at": timezone.now().isoformat(),
             },
         )
+        # Refresh presence — both users are now busy, remove from online list
+        await self.refresh_global_presence()
 
     async def handle_chunk_saved(self, data):
         await self.update_session_metadata({
@@ -184,13 +185,24 @@ class RecordingConsumer(AsyncWebsocketConsumer):
                 "ended_by_name": self.user.full_name,
                 "duration": data.get("duration", 0),
                 "session_id": self.session_id,
-                "show_upload": True,      # triggers Upload button on all clients
+                "show_upload": True,
             },
         )
 
-        # Trigger earnings calculation (held pending — admin must approve)
+        # Refresh presence — both users are free again, show in online list
+        await self.refresh_global_presence()
+
+        # Trigger earnings calculation
         from apps.recordings.tasks import process_recording_earnings
         process_recording_earnings.delay(self.session_id)
+
+    async def refresh_global_presence(self):
+        """Tell all presence consumers to re-broadcast updated online list."""
+        from apps.presence.consumers import PRESENCE_GROUP
+        await self.channel_layer.group_send(
+            PRESENCE_GROUP,
+            {"type": "presence.refresh"},
+        )
 
     async def handle_chat(self, data):
         await self.channel_layer.group_send(
