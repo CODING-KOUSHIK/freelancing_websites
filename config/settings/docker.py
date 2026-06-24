@@ -11,6 +11,18 @@ LOGOUT_REDIRECT_URL = "/"
 DEBUG = True
 ALLOWED_HOSTS = ["*"]
 
+# ─── CSRF — trust Railway + localhost ────────────────────────────
+import os as _csrf_os
+_site_url = _csrf_os.environ.get("SITE_URL", "")
+CSRF_TRUSTED_ORIGINS = [
+    "https://*.railway.app",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+]
+if _site_url and _site_url not in CSRF_TRUSTED_ORIGINS:
+    CSRF_TRUSTED_ORIGINS.append(_site_url)
+
+
 # ─── Session backend: Redis ──────────────────────────────────────
 SESSION_ENGINE = "django.contrib.sessions.backends.cache"
 SESSION_CACHE_ALIAS = "default"
