@@ -23,20 +23,17 @@ class SendRecordingRequestView(APIView):
 
     def post(self, request):
         """
-        Send a recording request to another user.
-        Both requester AND target must have an approved JobApplication
-        for the same audio_upload job.
+        Send a recording request to another online user.
+        No job restriction — any two users can record together.
         """
         serializer = RecordingRequestSerializer(data=request.data, context={"request": request})
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         from django.contrib.auth import get_user_model
-        from apps.marketplace.models import JobApplication
         User = get_user_model()
 
         target_id = serializer.validated_data["target_user_id"]
-        job_id = serializer.validated_data.get("job_id")  # optional — validated below
 
         try:
             target = User.objects.get(pk=target_id)
@@ -46,49 +43,16 @@ class SendRecordingRequestView(APIView):
         if str(target.pk) == str(request.user.pk):
             return Response({"error": "You cannot send a request to yourself."}, status=400)
 
-        # Find a shared approved job between requester and target
-        # (any job type — employer already approved both applicants)
-        requester_approved_jobs = set(
-            JobApplication.objects.filter(
-                applicant=request.user,
-                status="approved",
-            ).values_list("job_id", flat=True)
-        )
-
-        target_approved_jobs = set(
-            JobApplication.objects.filter(
-                applicant=target,
-                status="approved",
-            ).values_list("job_id", flat=True)
-        )
-
-        shared_jobs = requester_approved_jobs & target_approved_jobs
-
-        if not shared_jobs:
-            return Response(
-                {"error": "You and this user don't share an approved job. Both must be approved by the same employer."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        # Use provided job_id if valid, else pick the first shared job
-        if job_id and int(job_id) in shared_jobs:
-            selected_job_id = int(job_id)
-        else:
-            selected_job_id = next(iter(shared_jobs))
-
-        requester_application = JobApplication.objects.get(
-            applicant=request.user, job_id=selected_job_id
-        )
-
-        # Check no active session already exists between these users for this job
+        # Check no active session already exists between these two users
+        from django.db.models import Q as DQ
         existing = RecordingSession.objects.filter(
-            job_application=requester_application,
+            DQ(user_a=request.user, user_b=target) | DQ(user_a=target, user_b=request.user),
             status__in=["requested", "accepted", "in_progress"],
         ).first()
         if existing:
             return Response(
                 {
-                    "error": "You already have an active session for this job.",
+                    "error": "You already have an active session with this user.",
                     "session_id": str(existing.session_id),
                 },
                 status=status.HTTP_409_CONFLICT,
@@ -99,10 +63,10 @@ class SendRecordingRequestView(APIView):
             user_b=target,
             status="requested",
             sample_rate=serializer.validated_data.get("sample_rate", "48kHz"),
-            job_application=requester_application,
+            job_application=None,  # optional — not required
         )
 
-        if target.auto_accept_requests:
+        if getattr(target, "auto_accept_requests", False):
             session.status = "accepted"
             session.accepted_at = timezone.now()
             session.save(update_fields=["status", "accepted_at"])

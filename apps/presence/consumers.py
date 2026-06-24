@@ -114,23 +114,23 @@ class PresenceConsumer(AsyncWebsocketConsumer):
         now = timezone.now()
 
         # Auto-cancel truly stale sessions so users aren't stuck forever:
-        # - "requested" sessions older than 5 min (partner never responded)
-        # - "accepted/in_progress" sessions older than 3 hours (crashed/abandoned)
+        # - "requested" sessions older than 30 min (partner never responded)
+        # - "accepted/in_progress" sessions older than 6 hours (crashed/abandoned)
         RecordingSession.objects.filter(
             status="requested",
-            requested_at__lt=now - timedelta(minutes=5),
+            requested_at__lt=now - timedelta(minutes=30),
         ).update(status="rejected", ended_at=now)
 
         RecordingSession.objects.filter(
             status__in=["accepted", "in_progress"],
-            requested_at__lt=now - timedelta(hours=3),
+            requested_at__lt=now - timedelta(hours=6),
         ).update(status="rejected", ended_at=now)
 
         # Only hide users in RECENT active sessions (not stale stuck ones)
         busy_user_ids = set(
             RecordingSession.objects.filter(
                 status__in=["requested", "accepted", "in_progress"],
-                requested_at__gte=now - timedelta(hours=3),  # ignore ancient sessions
+                requested_at__gte=now - timedelta(hours=6),  # ignore ancient sessions
             ).values_list("user_a_id", "user_b_id")
         )
         flat_busy_ids = {uid for pair in busy_user_ids for uid in pair if uid}

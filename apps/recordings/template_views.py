@@ -1,7 +1,8 @@
 """Recordings template views"""
 import os
-from django.shortcuts import render, get_object_or_404
+from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
+from django.contrib import messages
 from django.db.models import Q
 from apps.recordings.models import RecordingSession
 from django.conf import settings
@@ -58,17 +59,24 @@ def recordings_list_page(request):
 
 @login_required
 def recording_session_page(request, session_id):
-    session = get_object_or_404(
-        RecordingSession,
-        Q(user_a=request.user) | Q(user_b=request.user),
-        session_id=session_id,
-    )
+    # Fetch session — user must be a participant
+    try:
+        session = RecordingSession.objects.select_related("user_a", "user_b").get(
+            Q(user_a=request.user) | Q(user_b=request.user),
+            session_id=session_id,
+        )
+    except RecordingSession.DoesNotExist:
+        messages.error(request, "Recording session not found or you are not a participant.")
+        return redirect("/")
+
+    # If session was cancelled/rejected, redirect gracefully instead of showing broken room
+    if session.status in ("rejected", "completed"):
+        status_label = "cancelled" if session.status == "rejected" else "completed"
+        messages.info(request, f"This recording session has already been {status_label}.")
+        return redirect("/")
+
     is_initiator = str(session.user_a.pk) == str(request.user.pk)
-    # Determine partner
-    if is_initiator:
-        partner = session.user_b
-    else:
-        partner = session.user_a
+    partner = session.user_b if is_initiator else session.user_a
 
     context = {
         "session": session,
