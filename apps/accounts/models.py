@@ -198,7 +198,13 @@ class EmailOTP(TimestampedModel):
     @classmethod
     def generate(cls, user, purpose="email_verify", expiry_minutes=10):
         from django.conf import settings
-        code = "".join(random.choices(string.digits, k=6))
+        import os
+        # BYPASS_OTP=True → use fixed "000000" (for testing when no email service)
+        # Set BYPASS_OTP=False in Railway when real email is ready
+        if os.environ.get("BYPASS_OTP", "True").lower() in ("true", "1", "yes"):
+            code = "000000"
+        else:
+            code = "".join(random.choices(string.digits, k=6))
         exp = timezone.now() + timezone.timedelta(
             minutes=getattr(settings, "OTP_EXPIRY_MINUTES", expiry_minutes)
         )
