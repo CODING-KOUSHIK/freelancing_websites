@@ -26,44 +26,60 @@ class RecordingConsumer(AsyncWebsocketConsumer):
             await self.close(code=4001)
             return
 
-        self.session_id = self.scope["url_route"]["kwargs"]["session_id"]
+        self.session_id = str(self.scope["url_route"]["kwargs"]["session_id"])
         self.room_group = f"recording_{self.session_id}"
 
-        # Verify user belongs to this session
-        session = await self.get_session()
-        if not session:
-            await self.close(code=4004)
-            return
+        try:
+            # ✅ Accept FIRST so browser's ws.onopen fires immediately
+            await self.channel_layer.group_add(self.room_group, self.channel_name)
+            await self.accept()
 
-        self.session = session
-        await self.channel_layer.group_add(self.room_group, self.channel_name)
-        await self.accept()
-        logger.info("User %s connected to recording room %s", self.user.pk, self.session_id)
+            # Then verify user belongs to this session
+            session = await self.get_session()
+            if not session:
+                logger.warning("Session %s not found for user %s", self.session_id, self.user.pk)
+                await self.send(text_data=json.dumps({
+                    "type": "error",
+                    "code": "session_not_found",
+                    "message": "Session not found or you are not a participant.",
+                }))
+                await self.close(code=4004)
+                return
 
-        # Register this user as connected; returns whether BOTH are now connected
-        connection_info = await self.register_connection()
+            self.session = session
+            logger.info("User %s connected to room %s (status=%s)", self.user.pk, self.session_id, session.status)
 
-        # Notify the room that this user joined
-        await self.channel_layer.group_send(
-            self.room_group,
-            {
-                "type": "peer.joined",
-                "user_id": str(self.user.pk),
-                "user_name": self.user.full_name,
-                "both_connected": connection_info["both_connected"],
-            },
-        )
+            # Register this user as connected
+            connection_info = await self.register_connection()
 
-        # If BOTH users are now in the room → unlock recording for everyone
-        if connection_info["both_connected"]:
-            logger.info("Both users connected in room %s — broadcasting recording.ready", self.session_id)
+            # Notify room that this user joined
             await self.channel_layer.group_send(
                 self.room_group,
                 {
-                    "type": "recording.ready",
-                    "message": "Both users connected. You can now start recording.",
+                    "type": "peer.joined",
+                    "user_id": str(self.user.pk),
+                    "user_name": self.user.full_name,
+                    "both_connected": connection_info["both_connected"],
                 },
             )
+
+            # If BOTH users are now in the room → unlock recording
+            if connection_info["both_connected"]:
+                logger.info("Both users connected in room %s — broadcasting recording.ready", self.session_id)
+                await self.channel_layer.group_send(
+                    self.room_group,
+                    {
+                        "type": "recording.ready",
+                        "message": "Both users connected. You can now start recording.",
+                    },
+                )
+
+        except Exception as exc:
+            logger.error("RecordingConsumer.connect error: %s", exc, exc_info=True)
+            try:
+                await self.close(code=4500)
+            except Exception:
+                pass
 
     async def disconnect(self, close_code):
         if hasattr(self, "room_group"):

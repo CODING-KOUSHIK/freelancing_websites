@@ -46,21 +46,30 @@ let wsConnectTimeout = null;
 
 function connectWS() {
   const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
-  ws = new WebSocket(`${scheme}://${location.host}/ws/recordings/${SESSION_ID}/`);
+  const url = `${scheme}://${location.host}/ws/recordings/${SESSION_ID}/`;
+  console.log('[WS] Connecting to:', url);
+  ws = new WebSocket(url);
 
-  // If WebSocket can't connect in 15s, show a helpful error
+  // Fail fast: 8 second timeout with retry button
   wsConnectTimeout = setTimeout(() => {
     if (!ws || ws.readyState !== WebSocket.OPEN) {
-      showBanner('⚠️ Cannot connect to recording room. Please check your internet and refresh the page.', 'error');
+      showConnectingError();
     }
-  }, 15000);
+  }, 8000);
 
   ws.onopen = () => {
-    console.log('[WS] Connected');
+    console.log('[WS] Connected ✔');
     clearTimeout(wsConnectTimeout);
     wsRetries = 0;
     window.webRTC.setSendFn(data => sendWS(data));
-    requestMic();
+    // Mic was already requested on page load; if stream ready, go to waiting state
+    if (window._localStream) {
+      window.webRTC.init(window._localStream, IS_INITIATOR);
+      startLevelMonitor();
+      showState('waiting');
+    } else {
+      requestMic();
+    }
   };
 
   ws.onmessage = e => {
@@ -69,50 +78,120 @@ function connectWS() {
   };
 
   ws.onclose = e => {
-    console.warn('[WS] Closed:', e.code);
+    console.warn('[WS] Closed:', e.code, e.reason);
     if (e.code === 1000) return; // intentional close — don't retry
     if (wsRetries < MAX_WS_RETRIES) {
-      const d = Math.min(1000 * Math.pow(1.5, wsRetries), 10000);
+      const d = Math.min(1000 * Math.pow(1.5, wsRetries), 8000);
       wsRetries++;
+      console.log(`[WS] Retry ${wsRetries}/${MAX_WS_RETRIES} in ${d}ms`);
       setTimeout(connectWS, d);
     } else {
-      showBanner('Connection lost. Please refresh the page.', 'error');
+      showConnectingError();
     }
   };
 
   ws.onerror = e => console.error('[WS] Error', e);
 }
 
+function showConnectingError() {
+  const el = document.getElementById('state-connecting');
+  if (el) el.innerHTML = `
+    <div class="bg-gray-900 border border-red-800/50 rounded-3xl p-10 text-center">
+      <div class="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
+        <i class="fas fa-exclamation-triangle text-red-400 text-2xl"></i>
+      </div>
+      <h2 class="text-xl font-bold mb-2 text-red-400">Connection Failed</h2>
+      <p class="text-gray-400 text-sm mb-6">Could not connect to the recording room.<br>Check your internet connection and try again.</p>
+      <button onclick="retryConnect()" class="px-8 py-3 bg-green-600 hover:bg-green-500 text-white font-semibold rounded-xl transition-all mr-3">
+        <i class="fas fa-redo mr-2"></i>Retry
+      </button>
+      <button onclick="doLeave()" class="px-6 py-3 bg-gray-800 hover:bg-gray-700 text-gray-400 rounded-xl transition-all">
+        <i class="fas fa-times mr-2"></i>Cancel
+      </button>
+    </div>
+  `;
+}
+
+function retryConnect() {
+  wsRetries = 0;
+  // Restore connecting state
+  const el = document.getElementById('state-connecting');
+  if (el) el.innerHTML = `
+    <div class="bg-gray-900 border border-gray-800 rounded-3xl p-10 text-center">
+      <div class="w-16 h-16 bg-purple-500/10 rounded-full flex items-center justify-center mx-auto mb-4 ring-2 ring-purple-500/30">
+        <div class="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full animate-spin"></div>
+      </div>
+      <h2 class="text-xl font-bold mb-2">Connecting to Room...</h2>
+      <p class="text-gray-400 text-sm mb-1">Joining room and requesting microphone access.</p>
+      <p class="text-gray-600 text-xs">Please allow microphone permission when prompted.</p>
+    </div>
+  `;
+  connectWS();
+}
+
 function sendWS(data) {
   if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(data));
 }
 
-// ─── Microphone ─────────────────────────────────────────────────
-async function requestMic() {
+// ─── Microphone ──────────────────────────────────────────────────
+// Request mic EARLY on page load so the permission prompt appears immediately
+async function earlyMicRequest() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    console.warn('[Mic] getUserMedia not available');
+    return;
+  }
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 48000, channelCount: 1 },
       video: false,
     });
+    window._localStream = stream;  // store for when WS opens
+    console.log('[Mic] Permission granted early ✔');
     const la = document.getElementById('local-audio');
     if (la) la.srcObject = stream;
+  } catch (err) {
+    console.warn('[Mic] Early request failed:', err.name);
+    if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+      showBanner('❌ Microphone access denied. Click the camera icon in your browser’s address bar to allow it, then refresh.', 'error');
+    }
+  }
+}
 
+function startLevelMonitor() {
+  levelsInterval = setInterval(() => {
+    const a = document.getElementById('level-a');
+    const b = document.getElementById('level-b');
+    if (a) a.style.width = window.webRTC.getLocalLevel() + '%';
+    if (b) b.style.width = window.webRTC.getRemoteLevel() + '%';
+  }, 100);
+}
+
+async function requestMic() {
+  // Re-use already-acquired stream if available
+  if (window._localStream) {
+    window.webRTC.init(window._localStream, IS_INITIATOR);
+    startLevelMonitor();
+    showState('waiting');
+    return;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 48000, channelCount: 1 },
+      video: false,
+    });
+    window._localStream = stream;
+    const la = document.getElementById('local-audio');
+    if (la) la.srcObject = stream;
     window.webRTC.init(stream, IS_INITIATOR);
-
-    levelsInterval = setInterval(() => {
-      const a = document.getElementById('level-a');
-      const b = document.getElementById('level-b');
-      if (a) a.style.width = window.webRTC.getLocalLevel() + '%';
-      if (b) b.style.width = window.webRTC.getRemoteLevel() + '%';
-    }, 100);
-
+    startLevelMonitor();
     showState('waiting');
   } catch (err) {
     console.error('[Mic] Error:', err);
-    const msg = err.name === 'NotAllowedError'
-      ? 'Microphone access was denied. Please allow it and refresh the page.'
-      : `Microphone error: ${err.message}`;
-    showBanner(msg, 'error');
+    if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+      showBanner('❌ Microphone denied. Click the 🎤 icon in the browser address bar and allow microphone, then click Retry.', 'error');
+    } else {
+      showBanner(`⚠️ Microphone error: ${err.message}. Please refresh the page.`, 'error');
+    }
   }
 }
 
@@ -594,7 +673,10 @@ function skipRating() {
   if (m) m.classList.add('hidden');
 }
 
-// ─── Init ────────────────────────────────────────────────────────
+// ─── Init ───────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
+  // 1. Request mic permission IMMEDIATELY so user sees the browser prompt
+  earlyMicRequest();
+  // 2. Connect WebSocket in parallel
   connectWS();
 });

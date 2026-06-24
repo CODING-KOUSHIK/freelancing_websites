@@ -503,7 +503,7 @@ function showToast(title, message, type = 'system') {
 }
 
 async function sendRecordingRequest(targetUserId, targetName) {
-  if (!confirm(`Send recording request to ${targetName}?`)) return;
+  // No confirm() — blocked on HTTPS. Send request directly.
   try {
     const res = await apiFetch('/api/recordings/request/', {
       method: 'POST',
@@ -514,17 +514,23 @@ async function sendRecordingRequest(targetUserId, targetName) {
       }),
     });
     const data = await res.json().catch(() => ({}));
+
     if (res.ok || res.status === 201) {
-      showToast('Request Sent', `Recording request sent to ${targetName}`, 'recording_request');
-      // If auto-accepted, redirect
-      if (data.status === 'accepted') {
-        window.location.href = `/recordings/${data.session_id}/`;
+      // ✅ Always redirect to room — whether requested or auto-accepted
+      const sessionId = data.session_id;
+      if (sessionId) {
+        showToast('Connecting...', `Joining recording room with ${targetName}`, 'recording_request');
+        setTimeout(() => { window.location.href = `/recordings/${sessionId}/`; }, 500);
       }
+    } else if (res.status === 409 && data.session_id) {
+      // Already have an active session with this user — join it
+      showToast('Rejoining', 'You already have a session with this user.', 'info');
+      setTimeout(() => { window.location.href = `/recordings/${data.session_id}/`; }, 500);
     } else {
       showToast('Error', extractApiError(data, 'Could not send request'), 'warning');
     }
   } catch (e) {
-    showToast('Error', 'Network error', 'warning');
+    showToast('Error', 'Network error. Please try again.', 'warning');
   }
 }
 
