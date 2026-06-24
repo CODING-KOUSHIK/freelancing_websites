@@ -27,8 +27,8 @@ logs/
 
 # ─── Secrets — never commit real .env ─────────────────────────
 .env
-# .env.docker is committed so Docker works out of the box
-# .env.example is committed as a template
+.env.docker
+# .env.example is committed as a template (no real secrets)
 
 # ─── OS / editor ──────────────────────────────────────────────
 .DS_Store
