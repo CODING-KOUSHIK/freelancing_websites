@@ -241,6 +241,14 @@ class RecordingConsumer(AsyncWebsocketConsumer):
     async def chat_message(self, event):
         await self.send(text_data=json.dumps(event))
 
+    async def session_cancelled(self, event):
+        """Sent when either user cancels — kicks all users out of the room."""
+        await self.send(text_data=json.dumps({
+            "type": "session.cancelled",
+            "cancelled_by": event.get("cancelled_by"),
+            "cancelled_by_name": event.get("cancelled_by_name", ""),
+        }))
+
     # ─── DB helpers ───────────────────────────────────────────
 
     @database_sync_to_async

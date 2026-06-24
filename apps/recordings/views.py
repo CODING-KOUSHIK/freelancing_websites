@@ -185,6 +185,55 @@ class RejectRecordingRequestView(APIView):
         return Response({"message": "Request rejected."})
 
 
+class CancelSessionView(APIView):
+    """
+    Either user can cancel a session at any stage (requested/accepted/in_progress).
+    - Marks session as 'rejected'
+    - Broadcasts session.cancelled to the WS room so both users get kicked out
+    - Refreshes presence so both reappear in the online list
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, session_id):
+        try:
+            session = RecordingSession.objects.get(
+                session_id=session_id,
+                status__in=["requested", "accepted", "in_progress"],
+            )
+        except RecordingSession.DoesNotExist:
+            return Response({"error": "Session not found or already ended."}, status=404)
+
+        # Only session participants can cancel
+        if str(session.user_a_id) != str(request.user.pk) and str(session.user_b_id) != str(request.user.pk):
+            return Response({"error": "Unauthorized."}, status=403)
+
+        session.status = "rejected"
+        session.ended_at = timezone.now()
+        session.save(update_fields=["status", "ended_at"])
+
+        # Broadcast cancellation via WebSocket to kick both users out of room
+        from channels.layers import get_channel_layer
+        from asgiref.sync import async_to_sync
+        channel_layer = get_channel_layer()
+        if channel_layer:
+            async_to_sync(channel_layer.group_send)(
+                f"recording_{session_id}",
+                {
+                    "type": "session.cancelled",
+                    "cancelled_by": str(request.user.pk),
+                    "cancelled_by_name": request.user.full_name,
+                },
+            )
+            # Also refresh presence so both users reappear in online list
+            from apps.presence.consumers import PRESENCE_GROUP
+            async_to_sync(channel_layer.group_send)(
+                PRESENCE_GROUP,
+                {"type": "presence.refresh"},
+            )
+
+        return Response({"message": "Session cancelled."})
+
+
 class StartRecordingView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 

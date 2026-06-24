@@ -42,12 +42,22 @@ function fmtTime(secs) {
 }
 
 // ─── WebSocket ───────────────────────────────────────────────────
+let wsConnectTimeout = null;
+
 function connectWS() {
   const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(`${scheme}://${location.host}/ws/recordings/${SESSION_ID}/`);
 
+  // If WebSocket can't connect in 15s, show a helpful error
+  wsConnectTimeout = setTimeout(() => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      showBanner('⚠️ Cannot connect to recording room. Please check your internet and refresh the page.', 'error');
+    }
+  }, 15000);
+
   ws.onopen = () => {
     console.log('[WS] Connected');
+    clearTimeout(wsConnectTimeout);
     wsRetries = 0;
     window.webRTC.setSendFn(data => sendWS(data));
     requestMic();
@@ -60,10 +70,13 @@ function connectWS() {
 
   ws.onclose = e => {
     console.warn('[WS] Closed:', e.code);
-    if (e.code !== 1000 && wsRetries < MAX_WS_RETRIES) {
+    if (e.code === 1000) return; // intentional close — don't retry
+    if (wsRetries < MAX_WS_RETRIES) {
       const d = Math.min(1000 * Math.pow(1.5, wsRetries), 10000);
       wsRetries++;
       setTimeout(connectWS, d);
+    } else {
+      showBanner('Connection lost. Please refresh the page.', 'error');
     }
   };
 
@@ -123,6 +136,18 @@ function onMsg(msg) {
           showState('waiting');
         }
       }
+      break;
+
+    case 'session.cancelled':
+      // Either user cancelled — redirect both to dashboard immediately
+      const who = msg.cancelled_by === String(CURRENT_USER_ID) ? 'You' : (msg.cancelled_by_name || 'Your partner');
+      showBanner(`${who} cancelled the session. Redirecting...`, 'warning');
+      stopTimer();
+      stopLocalRecording();
+      stopNetworkMonitor();
+      window.webRTC.cleanup();
+      if (ws?.readyState === WebSocket.OPEN) ws.close(1000, 'Session cancelled');
+      setTimeout(() => { window.location.href = '/'; }, 2000);
       break;
 
     case 'recording.ready':
@@ -492,22 +517,34 @@ function toggleSpeaker() {
 // ─── Cancel / Leave ──────────────────────────────────────────────
 function leaveSession() {
   if (currentState === 'recording') {
-    if (!confirm('Recording is in progress. Stop recording and leave?')) return;
-    stopRecording();
-    setTimeout(doLeave, 1200);
-  } else {
-    doLeave();
+    if (!confirm('Recording is in progress. Stop and leave? The session will be cancelled for both users.')) return;
+  } else if (currentState !== 'ended') {
+    if (!confirm('Leave this session? This will cancel it for both users.')) return;
   }
+  doLeave();
 }
 
-function doLeave() {
+async function doLeave() {
   clearInterval(levelsInterval);
   clearInterval(netStatsInterval);
   clearInterval(timerInterval);
+  clearTimeout(wsConnectTimeout);
   if (waveAnimId) cancelAnimationFrame(waveAnimId);
+  stopLocalRecording();
   window.webRTC.cleanup();
+
+  // Tell backend to cancel — this broadcasts session.cancelled to partner via WS
+  try {
+    await fetch(`/api/recordings/${SESSION_ID}/cancel/`, {
+      method: 'POST',
+      headers: { 'X-CSRFToken': getCookie('csrftoken'), 'Content-Type': 'application/json' },
+    });
+  } catch (e) {
+    console.warn('[Leave] Cancel API call failed:', e);
+  }
+
   if (ws?.readyState === WebSocket.OPEN) ws.close(1000, 'User left');
-  window.location.href = '/my-jobs/';
+  window.location.href = '/';
 }
 
 // ─── Banners ────────────────────────────────────────────────────

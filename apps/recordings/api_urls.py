@@ -7,6 +7,7 @@ urlpatterns = [
     path("request/", views.SendRecordingRequestView.as_view(), name="api-recording-request"),
     path("<uuid:session_id>/accept/", views.AcceptRecordingRequestView.as_view(), name="api-recording-accept"),
     path("<uuid:session_id>/reject/", views.RejectRecordingRequestView.as_view(), name="api-recording-reject"),
+    path("<uuid:session_id>/cancel/", views.CancelSessionView.as_view(), name="api-recording-cancel"),
     path("<uuid:session_id>/start/", views.StartRecordingView.as_view(), name="api-recording-start"),
     path("<uuid:session_id>/end/", views.EndRecordingView.as_view(), name="api-recording-end"),
     path("<uuid:session_id>/chunk/", views.UploadChunkView.as_view(), name="api-recording-chunk"),
