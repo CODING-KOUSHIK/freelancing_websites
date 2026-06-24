@@ -67,35 +67,57 @@ class WebSocketManager {
 
   updateOnlineUsers(users) {
     const list = document.getElementById('online-users-list');
+    const mobileList = document.getElementById('mobile-online-users-list');
     const count = document.getElementById('online-count');
-    if (!list) return;
+    const mobileCount = document.getElementById('mobile-online-count');
+    const badge = document.getElementById('mobile-online-badge');
 
+    // Update counts
     if (count) count.textContent = users.length;
+    if (mobileCount) mobileCount.textContent = users.length;
+
+    // Show/hide mobile badge
+    if (badge) {
+      if (users.length > 0) {
+        badge.textContent = users.length;
+        badge.classList.remove('hidden');
+      } else {
+        badge.classList.add('hidden');
+      }
+    }
+
+    const emptyMsg = '<p class="text-sm text-gray-500 text-center py-4">No users online</p>';
 
     if (users.length === 0) {
-      list.innerHTML = '<p class="text-xs text-gray-600 text-center py-2">No users online</p>';
+      if (list) list.innerHTML = '<p class="text-xs text-gray-600 text-center py-2">No users online</p>';
+      if (mobileList) mobileList.innerHTML = emptyMsg;
       return;
     }
 
-    list.innerHTML = users.map(u => `
-      <div class="flex items-center gap-2.5 p-2 rounded-xl hover:bg-gray-800/50 cursor-pointer transition-colors group"
+    const userHTML = users.map(u => `
+      <div class="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-800/50 cursor-pointer transition-colors group"
            onclick="sendRecordingRequest('${u.id}', '${u.name}')">
         <div class="relative flex-shrink-0">
           ${u.avatar
-            ? `<img src="${u.avatar}" class="w-8 h-8 rounded-full object-cover">`
-            : `<div class="w-8 h-8 rounded-full bg-gradient-to-br from-green-400 to-emerald-600 flex items-center justify-center text-white text-xs font-bold">${u.name ? u.name[0].toUpperCase() : '?'}</div>`
+            ? `<img src="${u.avatar}" class="w-10 h-10 rounded-full object-cover">`
+            : `<div class="w-10 h-10 rounded-full bg-gradient-to-br from-green-400 to-emerald-600 flex items-center justify-center text-white text-sm font-bold">${u.name ? u.name[0].toUpperCase() : '?'}</div>`
           }
           <span class="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-400 rounded-full border-2 border-gray-900"></span>
         </div>
         <div class="flex-1 min-w-0">
           <p class="text-sm font-medium truncate group-hover:text-green-400 transition-colors">${u.name}</p>
-          <p class="text-xs text-gray-600 capitalize">${u.level || 'beginner'}</p>
+          <p class="text-xs text-gray-500 capitalize">${u.level || 'beginner'}</p>
         </div>
-        <div class="opacity-0 group-hover:opacity-100 transition-opacity">
-          <i class="fas fa-microphone text-green-400 text-xs"></i>
-        </div>
+        <button class="bg-green-500/20 hover:bg-green-500/40 text-green-400 text-xs px-3 py-1.5 rounded-lg transition-colors font-medium">
+          <i class="fas fa-microphone mr-1"></i>Record
+        </button>
       </div>
     `).join('');
+
+    // Desktop sidebar
+    if (list) list.innerHTML = userHTML;
+    // Mobile drawer
+    if (mobileList) mobileList.innerHTML = userHTML;
   }
 
   async loadRecordingStats() {

@@ -46,13 +46,12 @@ class SendRecordingRequestView(APIView):
         if str(target.pk) == str(request.user.pk):
             return Response({"error": "You cannot send a request to yourself."}, status=400)
 
-        # Find a shared approved audio job between requester and target
+        # Find a shared approved job between requester and target
+        # (any job type — employer already approved both applicants)
         requester_approved_jobs = set(
             JobApplication.objects.filter(
                 applicant=request.user,
                 status="approved",
-                job__submission_type="audio_upload",
-                job__status="published",
             ).values_list("job_id", flat=True)
         )
 
@@ -60,8 +59,6 @@ class SendRecordingRequestView(APIView):
             JobApplication.objects.filter(
                 applicant=target,
                 status="approved",
-                job__submission_type="audio_upload",
-                job__status="published",
             ).values_list("job_id", flat=True)
         )
 
@@ -69,7 +66,7 @@ class SendRecordingRequestView(APIView):
 
         if not shared_jobs:
             return Response(
-                {"error": "No shared approved recording job found. Both users must be approved for the same audio job."},
+                {"error": "You and this user don't share an approved job. Both must be approved by the same employer."},
                 status=status.HTTP_403_FORBIDDEN,
             )
 

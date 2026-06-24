@@ -224,6 +224,41 @@
       </div>
     </aside>
 
+    <!-- ─── Mobile Online Users Floating Button ──────────────────── -->
+    <div class="lg:hidden fixed bottom-6 right-6 z-50">
+      <button onclick="toggleMobileOnlinePanel()"
+        class="w-14 h-14 bg-gradient-to-br from-green-500 to-emerald-600 rounded-full shadow-2xl flex items-center justify-center text-white relative">
+        <i class="fas fa-users text-lg"></i>
+        <span id="mobile-online-badge"
+          class="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full text-xs flex items-center justify-center font-bold hidden">0</span>
+      </button>
+    </div>
+
+    <!-- ─── Mobile Online Users Drawer ───────────────────────────── -->
+    <div id="mobile-online-drawer"
+      class="lg:hidden fixed inset-x-0 bottom-0 z-50 transform translate-y-full transition-transform duration-300 ease-in-out">
+      <div class="bg-gray-900 border-t border-gray-700 rounded-t-3xl p-5 max-h-[70vh] overflow-y-auto shadow-2xl">
+        <!-- Handle bar -->
+        <div class="w-10 h-1 bg-gray-600 rounded-full mx-auto mb-4"></div>
+        <div class="flex items-center justify-between mb-4">
+          <p class="font-semibold text-white flex items-center gap-2">
+            <span class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
+            Online Now
+            <span id="mobile-online-count" class="text-xs bg-green-500/20 text-green-400 px-2 py-0.5 rounded-full ml-1">0</span>
+          </p>
+          <button onclick="toggleMobileOnlinePanel()" class="text-gray-400 hover:text-white text-xl">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+        <div id="mobile-online-users-list" class="space-y-2">
+          <p class="text-sm text-gray-500 text-center py-4">No users online</p>
+        </div>
+      </div>
+    </div>
+    <!-- Backdrop -->
+    <div id="mobile-drawer-backdrop" class="lg:hidden fixed inset-0 bg-black/60 z-40 hidden"
+      onclick="toggleMobileOnlinePanel()"></div>
+
     <!-- Main Content Area -->
     <main class="flex-1 lg:ml-64 p-4 sm:p-6 lg:p-8 max-w-full overflow-x-hidden">
       {% if messages %}

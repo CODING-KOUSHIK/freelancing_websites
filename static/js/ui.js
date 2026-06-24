@@ -3,6 +3,23 @@
  * AI Voice Data Marketplace
  */
 
+/* ─── Mobile Online Users Panel ─────────────────────────────── */
+function toggleMobileOnlinePanel() {
+  const drawer = document.getElementById('mobile-online-drawer');
+  const backdrop = document.getElementById('mobile-drawer-backdrop');
+  if (!drawer) return;
+  const isOpen = !drawer.classList.contains('translate-y-full');
+  if (isOpen) {
+    drawer.classList.add('translate-y-full');
+    if (backdrop) backdrop.classList.add('hidden');
+    document.body.style.overflow = '';
+  } else {
+    drawer.classList.remove('translate-y-full');
+    if (backdrop) backdrop.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+  }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
 
   /* ─── Notification dropdown toggle ──────────────────────── */
