@@ -108,23 +108,38 @@ class PresenceConsumer(AsyncWebsocketConsumer):
         from apps.recordings.models import RecordingSession
         from django.db.models import Q
         from django.conf import settings
+        from datetime import timedelta
 
         limit = getattr(settings, "MAX_ONLINE_USERS_DISPLAY", 20)
+        now = timezone.now()
 
-        # Get IDs of users currently in an active recording session
+        # Auto-cancel truly stale sessions so users aren't stuck forever:
+        # - "requested" sessions older than 5 min (partner never responded)
+        # - "accepted/in_progress" sessions older than 3 hours (crashed/abandoned)
+        RecordingSession.objects.filter(
+            status="requested",
+            requested_at__lt=now - timedelta(minutes=5),
+        ).update(status="rejected", ended_at=now)
+
+        RecordingSession.objects.filter(
+            status__in=["accepted", "in_progress"],
+            requested_at__lt=now - timedelta(hours=3),
+        ).update(status="rejected", ended_at=now)
+
+        # Only hide users in RECENT active sessions (not stale stuck ones)
         busy_user_ids = set(
             RecordingSession.objects.filter(
-                status__in=["requested", "accepted", "in_progress"]
+                status__in=["requested", "accepted", "in_progress"],
+                requested_at__gte=now - timedelta(hours=3),  # ignore ancient sessions
             ).values_list("user_a_id", "user_b_id")
         )
-        # Flatten the list of tuples into a flat set
         flat_busy_ids = {uid for pair in busy_user_ids for uid in pair if uid}
 
         presences = (
             UserPresence.objects
             .filter(is_online=True)
-            .exclude(user_id__in=flat_busy_ids)      # ← hide busy users
-            .exclude(user=self.user)                  # ← hide yourself
+            .exclude(user_id__in=flat_busy_ids)
+            .exclude(user=self.user)
             .select_related("user")
             .order_by("-last_seen")[:limit]
         )

@@ -516,34 +516,35 @@ function toggleSpeaker() {
 
 // ─── Cancel / Leave ──────────────────────────────────────────────
 function leaveSession() {
-  if (currentState === 'recording') {
-    if (!confirm('Recording is in progress. Stop and leave? The session will be cancelled for both users.')) return;
-  } else if (currentState !== 'ended') {
-    if (!confirm('Leave this session? This will cancel it for both users.')) return;
-  }
+  // No confirm() — browser blocks JS dialogs on HTTPS. Cancel instantly.
   doLeave();
 }
 
 async function doLeave() {
+  // Disable cancel button immediately to prevent double-clicks
+  const btn = document.getElementById('leave-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Leaving...'; }
+
   clearInterval(levelsInterval);
   clearInterval(netStatsInterval);
   clearInterval(timerInterval);
   clearTimeout(wsConnectTimeout);
   if (waveAnimId) cancelAnimationFrame(waveAnimId);
   stopLocalRecording();
-  window.webRTC.cleanup();
 
-  // Tell backend to cancel — this broadcasts session.cancelled to partner via WS
+  try { window.webRTC.cleanup(); } catch(e) {}
+
+  // Call cancel API — marks session rejected + kicks partner out via WS
   try {
     await fetch(`/api/recordings/${SESSION_ID}/cancel/`, {
       method: 'POST',
       headers: { 'X-CSRFToken': getCookie('csrftoken'), 'Content-Type': 'application/json' },
     });
   } catch (e) {
-    console.warn('[Leave] Cancel API call failed:', e);
+    console.warn('[Leave] Cancel API failed (proceeding anyway):', e);
   }
 
-  if (ws?.readyState === WebSocket.OPEN) ws.close(1000, 'User left');
+  try { if (ws?.readyState === WebSocket.OPEN) ws.close(1000, 'User left'); } catch(e) {}
   window.location.href = '/';
 }
 
