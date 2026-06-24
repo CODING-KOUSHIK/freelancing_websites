@@ -6,6 +6,64 @@ from django.utils import timezone
 logger = logging.getLogger(__name__)
 
 
+@shared_task(bind=True, max_retries=3, default_retry_delay=30)
+def send_otp_email_task(self, receiver_email: str, otp_code: str, purpose: str = "email_verify"):
+    """
+    Send OTP email via Django's configured email backend (Resend/SMTP).
+    Async — never blocks the HTTP request.
+    Auto-retries up to 3 times if it fails.
+    """
+    from django.core.mail import send_mail
+    from django.conf import settings
+
+    if purpose == "password_reset":
+        subject = "Your Password Reset OTP — VoiceMarket"
+        body = (
+            f"Your Password Reset OTP is: {otp_code}\n\n"
+            f"This OTP is valid for 10 minutes.\n"
+            f"Do not share this OTP with anyone.\n\n"
+            f"If you did not request this, ignore this email.\n\n"
+            f"VoiceMarket Team"
+        )
+    else:
+        subject = "Your Email Verification OTP — VoiceMarket"
+        body = (
+            f"Welcome to VoiceMarket!\n\n"
+            f"Your Verification OTP is: {otp_code}\n\n"
+            f"This OTP is valid for 10 minutes.\n"
+            f"Do not share this OTP with anyone.\n\n"
+            f"VoiceMarket Team"
+        )
+    try:
+        from_email = getattr(settings, "DEFAULT_FROM_EMAIL", "VoiceMarket <noreply@voicemarket.app>")
+        send_mail(subject, body, from_email, [receiver_email], fail_silently=False)
+        logger.info("OTP email sent to %s (purpose: %s)", receiver_email, purpose)
+        return True
+    except Exception as exc:
+        logger.exception("OTP email failed for %s: %s — retrying", receiver_email, exc)
+        raise self.retry(exc=exc)
+
+
+@shared_task(bind=True, max_retries=3, default_retry_delay=30)
+def send_html_email_task(self, receiver_email: str, subject: str, html_body: str):
+    """Send HTML email async via Django's configured email backend."""
+    import re
+    from django.core.mail import EmailMultiAlternatives
+    from django.conf import settings
+
+    plain = re.sub(r"<[^>]+>", "", html_body).strip()
+    try:
+        from_email = getattr(settings, "DEFAULT_FROM_EMAIL", "VoiceMarket <noreply@voicemarket.app>")
+        msg = EmailMultiAlternatives(subject, plain, from_email, [receiver_email])
+        msg.attach_alternative(html_body, "text/html")
+        msg.send()
+        logger.info("HTML email sent to %s: %s", receiver_email, subject)
+        return True
+    except Exception as exc:
+        logger.exception("HTML email failed for %s: %s — retrying", receiver_email, exc)
+        raise self.retry(exc=exc)
+
+
 @shared_task
 def cleanup_expired_otps():
     """Delete all expired/used OTPs to keep the table clean."""
