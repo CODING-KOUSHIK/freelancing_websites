@@ -53,7 +53,7 @@ class CustomUserAdmin(UserAdmin):
         )
     profile_completion_display.short_description = "Profile Completion"
 
-    actions = ["suspend_users", "unsuspend_users", "ban_users", "verify_users", "approve_kyc"]
+    actions = ["suspend_users", "unsuspend_users", "ban_users", "verify_users", "approve_kyc", "reset_axes_lockout"]
 
     def suspend_users(self, request, queryset):
         queryset.update(is_suspended=True)
@@ -75,6 +75,47 @@ class CustomUserAdmin(UserAdmin):
     def approve_kyc(self, request, queryset):
         queryset.update(kyc_status="approved")
     approve_kyc.short_description = "Approve KYC"
+
+    def reset_axes_lockout(self, request, queryset):
+        """
+        Clear Axes AccessAttempt records for selected users.
+        Useful when a user is re-registering or keeps getting blocked
+        even though they should be allowed to log in.
+        """
+        try:
+            from axes.models import AccessAttempt
+            count = 0
+            for user in queryset:
+                deleted, _ = AccessAttempt.objects.filter(username=user.email).delete()
+                count += deleted
+            self.message_user(request, f"✅ Cleared {count} Axes lockout record(s). Users can now log in.")
+        except Exception as e:
+            self.message_user(request, f"❌ Error clearing Axes records: {e}", level="error")
+    reset_axes_lockout.short_description = "🔓 Reset login lockout (clear Axes blocks)"
+
+    def delete_queryset(self, request, queryset):
+        """
+        Override bulk delete to also clear Axes lockout records for each user,
+        so they can re-register with the same email if needed.
+        """
+        try:
+            from axes.models import AccessAttempt
+            for user in queryset:
+                AccessAttempt.objects.filter(username=user.email).delete()
+        except Exception:
+            pass  # Don't block deletion if Axes cleanup fails
+        super().delete_queryset(request, queryset)
+
+    def delete_model(self, request, obj):
+        """
+        Override single-object delete to also clear Axes lockout for that email.
+        """
+        try:
+            from axes.models import AccessAttempt
+            AccessAttempt.objects.filter(username=obj.email).delete()
+        except Exception:
+            pass
+        super().delete_model(request, obj)
 
 
 @admin.register(EmailOTP)

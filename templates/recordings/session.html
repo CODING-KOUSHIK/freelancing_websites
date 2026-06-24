@@ -1,156 +1,317 @@
 {% extends "base.html" %}
 {% load static %}
 
-{% block title %}Recording Session — VoiceMarket{% endblock %}
+{% block title %}Recording Room — VoiceMarket{% endblock %}
 
 {% block content %}
-<div id="session-container" class="animate-fade-in">
+<div id="session-container" class="animate-fade-in max-w-5xl mx-auto">
 
-  <!-- ─── Session Header ──────────────────────────────────────── -->
-  <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6 gap-4">
+  <!-- ─── Header ──────────────────────────────────────────────── -->
+  <div class="flex items-center justify-between mb-6 gap-4">
     <div>
-      <h1 class="text-2xl font-bold">Voice Recording Session</h1>
+      <h1 class="text-2xl font-bold bg-gradient-to-r from-purple-400 to-indigo-400 bg-clip-text text-transparent">
+        🎙 Recording Room
+      </h1>
       <p class="text-gray-400 text-sm mt-1">
-        Session ID: <span class="font-mono text-green-400" id="session-id-display">{{ session.session_id|stringformat:"s"|truncatechars:12 }}</span>
+        <span class="font-mono text-purple-400 text-xs">{{ session.session_id|stringformat:"s"|truncatechars:16 }}</span>
+        {% if session.job_application %}· <span class="text-gray-500 text-xs">{{ session.job_application.job.title }}</span>{% endif %}
       </p>
     </div>
-    <div id="session-status-badge" class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-semibold bg-yellow-500/10 text-yellow-400 border border-yellow-500/20">
-      <span class="w-2 h-2 bg-yellow-400 rounded-full animate-pulse"></span>
-      Connecting...
+    <div class="flex items-center gap-3">
+      <div id="session-status-badge" class="hidden sm:inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-semibold border bg-gray-700/40 text-gray-300 border-gray-600">
+        <span class="w-2 h-2 bg-gray-400 rounded-full"></span>
+        <span id="status-text">Connecting...</span>
+      </div>
+      <button onclick="leaveSession()"
+        id="leave-btn"
+        class="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-red-900/40 text-gray-400 hover:text-red-400 border border-gray-700 hover:border-red-500/40 rounded-xl text-sm font-medium transition-all">
+        <i class="fas fa-times-circle"></i>
+        <span id="leave-btn-text">Cancel</span>
+      </button>
     </div>
   </div>
 
-  <!-- ─── Main Session Grid ───────────────────────────────────── -->
-  <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+  <!-- ─── STATE: Connecting ──────────────────────────────────── -->
+  <div id="state-connecting">
+    <div class="bg-gray-900 border border-gray-800 rounded-3xl p-10 text-center">
+      <div class="w-16 h-16 bg-purple-500/10 rounded-full flex items-center justify-center mx-auto mb-4 ring-2 ring-purple-500/30">
+        <div class="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full animate-spin"></div>
+      </div>
+      <h2 class="text-xl font-bold mb-2">Connecting to Room...</h2>
+      <p class="text-gray-400 text-sm mb-1">Joining room and requesting microphone access.</p>
+      <p class="text-gray-600 text-xs">Please allow microphone permission when prompted.</p>
+    </div>
+  </div>
 
-    <!-- Left: Partner Info & Controls -->
-    <div class="lg:col-span-1 flex flex-col gap-4">
-      <!-- Partner Card -->
-      <div class="card text-center">
-        <div class="relative inline-block mb-4">
-          {% if partner.profile_photo %}
-            <img src="{{ partner.profile_photo.url }}" class="w-20 h-20 rounded-full mx-auto ring-4 ring-green-500/30">
-          {% else %}
-            <div class="w-20 h-20 rounded-full bg-gradient-to-br from-green-400 to-emerald-600 flex items-center justify-center text-3xl font-bold text-white mx-auto ring-4 ring-green-500/30">
-              {{ partner.short_name|first|upper }}
-            </div>
-          {% endif %}
-          <span id="partner-online-dot" class="absolute bottom-0 right-0 w-5 h-5 bg-gray-600 rounded-full border-2 border-gray-900"></span>
+  <!-- ─── STATE: Waiting for partner ──────────────────────────── -->
+  <div id="state-waiting" class="hidden">
+    <div class="bg-gray-900 border border-gray-800 rounded-3xl p-10 text-center">
+      <div class="w-20 h-20 bg-yellow-500/10 rounded-full flex items-center justify-center mx-auto mb-5 border-2 border-yellow-500/30">
+        <i class="fas fa-hourglass-half text-yellow-400 text-3xl animate-pulse"></i>
+      </div>
+      <h2 class="text-xl font-bold mb-2">Waiting for {{ partner.full_name }} to join...</h2>
+      <p class="text-gray-400 text-sm mb-8">You're in the room. Recording will unlock once both of you are connected.</p>
+      <div class="flex items-center justify-center gap-8 mb-8">
+        <div class="text-center">
+          <div class="w-16 h-16 rounded-full bg-gradient-to-br from-green-400 to-emerald-600 flex items-center justify-center text-white font-bold text-xl mx-auto mb-2 ring-4 ring-green-400/40">{{ request.user.full_name|first|upper }}</div>
+          <p class="text-green-400 font-semibold text-xs">You</p>
+          <p class="text-gray-500 text-xs flex items-center gap-1 justify-center mt-1"><span class="w-2 h-2 bg-green-400 rounded-full"></span>Connected</p>
         </div>
-        <h3 class="font-bold text-lg">{{ partner.full_name }}</h3>
-        <p class="text-green-400 text-sm capitalize">{{ partner.level }}</p>
-        <div class="flex justify-center gap-1 mt-2">
-          {% for i in "12345" %}
-            <i class="fas fa-star text-xs {% if forloop.counter <= partner.reputation_score|floatformat:0|add:0 %}text-yellow-400{% else %}text-gray-700{% endif %}"></i>
-          {% endfor %}
+        <div class="flex items-center gap-1.5">
+          <span class="w-2.5 h-2.5 bg-gray-600 rounded-full animate-pulse"></span>
+          <span class="w-2.5 h-2.5 bg-gray-600 rounded-full animate-pulse" style="animation-delay:.3s"></span>
+          <span class="w-2.5 h-2.5 bg-gray-600 rounded-full animate-pulse" style="animation-delay:.6s"></span>
+        </div>
+        <div class="text-center">
+          {% if partner.profile_photo %}<img src="{{ partner.profile_photo.url }}" class="w-16 h-16 rounded-full mx-auto mb-2 opacity-40">
+          {% else %}<div class="w-16 h-16 rounded-full bg-gray-700 flex items-center justify-center text-gray-500 font-bold text-xl mx-auto mb-2 opacity-40">{{ partner.full_name|first|upper }}</div>{% endif %}
+          <p class="text-gray-400 font-semibold text-xs">{{ partner.short_name }}</p>
+          <p class="text-gray-600 text-xs flex items-center gap-1 justify-center mt-1"><span class="w-2 h-2 bg-gray-600 rounded-full"></span>Waiting...</p>
         </div>
       </div>
+      <button onclick="leaveSession()" class="inline-flex items-center gap-2 px-6 py-2.5 bg-gray-800 hover:bg-red-900/30 text-gray-400 hover:text-red-400 border border-gray-700 hover:border-red-500/40 rounded-xl text-sm transition-all">
+        <i class="fas fa-times-circle"></i> Cancel & Go Back
+      </button>
+    </div>
+  </div>
 
-      <!-- Call Controls -->
-      <div class="card">
-        <h3 class="font-semibold mb-4 text-center">Controls</h3>
-        <div class="grid grid-cols-2 gap-3">
-          <button id="btn-mute" onclick="toggleMute()" class="control-btn" title="Mute">
-            <i id="mute-icon" class="fas fa-microphone text-green-400 text-xl mb-1"></i>
-            <span class="text-xs" id="mute-label">Mute</span>
-          </button>
-          <button id="btn-speaker" onclick="toggleSpeaker()" class="control-btn" title="Speaker">
-            <i id="speaker-icon" class="fas fa-volume-up text-blue-400 text-xl mb-1"></i>
-            <span class="text-xs">Speaker</span>
-          </button>
-        </div>
-        <button id="btn-end-call" onclick="endSession()" class="mt-4 w-full bg-red-600 hover:bg-red-500 text-white font-semibold py-3 rounded-xl transition-all transform hover:scale-105 shadow-lg shadow-red-900/30 flex items-center justify-center gap-2">
-          <i class="fas fa-phone-slash"></i> End Session
+  <!-- ─── STATE: Both Connected — Ready ─────────────────────── -->
+  <div id="state-ready" class="hidden">
+    <div class="bg-gradient-to-br from-green-900/30 to-emerald-900/20 border border-green-500/30 rounded-3xl p-10 text-center">
+      <div class="w-16 h-16 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-4 ring-4 ring-green-400/30">
+        <i class="fas fa-check-double text-green-400 text-2xl"></i>
+      </div>
+      <h2 class="text-2xl font-bold text-green-400 mb-2">Both Connected! 🎉</h2>
+      <p class="text-gray-400 text-sm mb-8">You and <strong class="text-white">{{ partner.full_name }}</strong> are in the room. Press Start Recording when ready.</p>
+      <div class="flex flex-col sm:flex-row items-center justify-center gap-3">
+        <button id="btn-start-recording" onclick="startRecording()"
+          class="inline-flex items-center gap-3 px-10 py-4 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-bold text-lg rounded-2xl transition-all transform hover:scale-105 shadow-lg shadow-red-900/40">
+          <i class="fas fa-circle text-red-200 animate-pulse"></i> Start Recording
+        </button>
+        <button onclick="leaveSession()" class="px-6 py-3 bg-gray-800 hover:bg-gray-700 text-gray-400 rounded-2xl text-sm transition-colors">
+          <i class="fas fa-times mr-1"></i> Leave Room
         </button>
       </div>
-
-      <!-- Timer -->
-      <div class="card text-center">
-        <p class="text-xs text-gray-500 uppercase tracking-widest mb-2">Session Duration</p>
-        <div class="font-mono text-4xl font-bold bg-gradient-to-r from-green-400 to-emerald-500 bg-clip-text text-transparent" id="timer">00:00:00</div>
-        <div class="mt-3 text-xs text-gray-500">
-          Estimated earnings: <span class="text-green-400 font-semibold" id="est-earnings">₹0.00</span>
-        </div>
-      </div>
     </div>
+  </div>
 
-    <!-- Right: Audio Visualizer + Waveform -->
-    <div class="lg:col-span-2 flex flex-col gap-4">
-      <!-- Waveform Visualizer -->
-      <div class="card relative overflow-hidden flex flex-col" style="min-height:280px;">
-        <div class="flex justify-between items-center mb-4">
-          <div class="flex items-center gap-2">
-            <div class="w-3 h-3 bg-green-400 rounded-full" id="rec-dot"></div>
-            <span class="font-semibold" id="rec-status-text">Waiting for peer...</span>
+  <!-- ─── STATE: Recording in Progress ─────────────────────── -->
+  <div id="state-recording" class="hidden">
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+
+      <!-- Left Controls -->
+      <div class="lg:col-span-1 flex flex-col gap-4">
+        <!-- Partner card -->
+        <div class="card text-center">
+          <div class="relative inline-block mb-3">
+            {% if partner.profile_photo %}<img src="{{ partner.profile_photo.url }}" class="w-16 h-16 rounded-full mx-auto ring-4 ring-green-500/40">
+            {% else %}<div class="w-16 h-16 rounded-full bg-gradient-to-br from-purple-400 to-indigo-600 flex items-center justify-center text-2xl font-bold text-white mx-auto ring-4 ring-green-500/40">{{ partner.full_name|first|upper }}</div>{% endif %}
+            <span class="absolute bottom-0 right-0 w-4 h-4 bg-green-400 rounded-full border-2 border-gray-900"></span>
           </div>
-          <div class="flex items-center gap-3">
-            <div class="text-xs text-gray-500">Quality: <span class="text-green-400">{{ session.sample_rate }}</span></div>
-            <div class="text-xs text-gray-500">Format: <span class="text-green-400">WAV 16-bit</span></div>
-          </div>
+          <h3 class="font-bold text-sm">{{ partner.full_name }}</h3>
+          <p class="text-green-400 text-xs capitalize">{{ partner.level }}</p>
         </div>
 
-        <!-- Canvas for waveform -->
-        <canvas id="waveform-canvas" class="w-full flex-1 rounded-xl bg-gray-950" height="160"></canvas>
+        <!-- Controls -->
+        <div class="card">
+          <div class="grid grid-cols-2 gap-2 mb-3">
+            <button id="btn-mute" onclick="toggleMute()" class="flex flex-col items-center gap-1.5 p-3 bg-gray-800 rounded-xl hover:bg-gray-700 transition-colors">
+              <i id="mute-icon" class="fas fa-microphone text-green-400 text-xl"></i>
+              <span class="text-xs" id="mute-label">Mute</span>
+            </button>
+            <button id="btn-speaker" onclick="toggleSpeaker()" class="flex flex-col items-center gap-1.5 p-3 bg-gray-800 rounded-xl hover:bg-gray-700 transition-colors">
+              <i id="speaker-icon" class="fas fa-volume-up text-blue-400 text-xl"></i>
+              <span class="text-xs">Speaker</span>
+            </button>
+          </div>
+          <button onclick="stopRecording()" class="w-full bg-red-600 hover:bg-red-500 text-white font-semibold py-3 rounded-xl transition-all flex items-center justify-center gap-2">
+            <i class="fas fa-stop-circle"></i> Stop Recording
+          </button>
+        </div>
 
-        <!-- Hidden audio elements -->
-        <audio id="local-audio" muted autoplay></audio>
-        <audio id="remote-audio" autoplay></audio>
+        <!-- Timer -->
+        <div class="card text-center">
+          <p class="text-xs text-gray-500 uppercase tracking-widest mb-1">Recording</p>
+          <div class="font-mono text-3xl font-bold text-red-400" id="timer">00:00:00</div>
+          <div class="mt-2 text-xs text-gray-500">Est. earnings: <span class="text-green-400 font-semibold" id="est-earnings">₹0.00</span></div>
+        </div>
+
+        <!-- Network Quality Indicator -->
+        <div class="card" id="network-card">
+          <p class="text-xs text-gray-500 uppercase tracking-widest mb-3">Network Quality</p>
+          <div class="flex items-center gap-3 mb-3">
+            <!-- Signal bars -->
+            <div class="flex items-end gap-0.5 h-6" id="signal-bars">
+              <div class="w-2 bg-green-400 rounded-sm" style="height:30%"></div>
+              <div class="w-2 bg-green-400 rounded-sm" style="height:50%"></div>
+              <div class="w-2 bg-green-400 rounded-sm" style="height:70%"></div>
+              <div class="w-2 bg-green-400 rounded-sm" style="height:100%"></div>
+            </div>
+            <div>
+              <p class="text-sm font-semibold" id="net-quality-label">Excellent</p>
+              <p class="text-xs text-gray-500" id="net-quality-sub">Low latency</p>
+            </div>
+          </div>
+          <div class="space-y-1.5 text-xs">
+            <div class="flex justify-between text-gray-400">
+              <span>Latency</span><span id="stat-rtt" class="text-white font-mono">—</span>
+            </div>
+            <div class="flex justify-between text-gray-400">
+              <span>Packet Loss</span><span id="stat-loss" class="text-white font-mono">—</span>
+            </div>
+            <div class="flex justify-between text-gray-400">
+              <span>Jitter</span><span id="stat-jitter" class="text-white font-mono">—</span>
+            </div>
+          </div>
+        </div>
       </div>
 
-      <!-- Channel Indicators -->
-      <div class="grid grid-cols-2 gap-3">
-        <div class="card border border-green-500/20">
-          <div class="flex items-center gap-2 mb-2">
-            <div class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-            <span class="text-xs font-semibold text-green-400">Channel A (You)</span>
+      <!-- Right: Waveform + Channels -->
+      <div class="lg:col-span-2 flex flex-col gap-4">
+        <div class="card relative overflow-hidden flex flex-col" style="min-height:240px;">
+          <div class="flex justify-between items-center mb-3">
+            <div class="flex items-center gap-2">
+              <div class="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
+              <span class="font-semibold text-sm text-red-400">LIVE · Recording</span>
+            </div>
+            <div class="text-xs text-gray-500">WAV 16-bit · 48kHz</div>
           </div>
-          <div class="h-2 bg-gray-800 rounded-full overflow-hidden">
-            <div id="level-a" class="h-full bg-gradient-to-r from-green-400 to-emerald-500 rounded-full transition-all" style="width:0%"></div>
-          </div>
-          <p class="text-xs text-gray-500 mt-1">{{ user.full_name }}</p>
+          <canvas id="waveform-canvas" class="w-full flex-1 rounded-xl bg-gray-950" height="150"></canvas>
+          <audio id="local-audio" muted autoplay></audio>
+          <audio id="remote-audio" autoplay></audio>
         </div>
-        <div class="card border border-blue-500/20">
-          <div class="flex items-center gap-2 mb-2">
-            <div class="w-2 h-2 bg-blue-400 rounded-full animate-pulse" id="b-pulse"></div>
-            <span class="text-xs font-semibold text-blue-400">Channel B (Partner)</span>
+        <!-- Channels -->
+        <div class="grid grid-cols-2 gap-3">
+          <div class="card border border-green-500/20">
+            <div class="flex items-center gap-2 mb-2"><div class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div><span class="text-xs font-semibold text-green-400">You</span></div>
+            <div class="h-2 bg-gray-800 rounded-full overflow-hidden"><div id="level-a" class="h-full bg-gradient-to-r from-green-400 to-emerald-500 rounded-full transition-all" style="width:0%"></div></div>
+            <p class="text-xs text-gray-500 mt-1 truncate">{{ request.user.full_name }}</p>
           </div>
-          <div class="h-2 bg-gray-800 rounded-full overflow-hidden">
-            <div id="level-b" class="h-full bg-gradient-to-r from-blue-400 to-indigo-500 rounded-full transition-all" style="width:0%"></div>
+          <div class="card border border-blue-500/20">
+            <div class="flex items-center gap-2 mb-2"><div class="w-2 h-2 bg-blue-400 rounded-full animate-pulse"></div><span class="text-xs font-semibold text-blue-400">Partner</span></div>
+            <div class="h-2 bg-gray-800 rounded-full overflow-hidden"><div id="level-b" class="h-full bg-gradient-to-r from-blue-400 to-indigo-500 rounded-full transition-all" style="width:0%"></div></div>
+            <p class="text-xs text-gray-500 mt-1 truncate">{{ partner.full_name }}</p>
           </div>
-          <p class="text-xs text-gray-500 mt-1">{{ partner.full_name }}</p>
         </div>
-      </div>
-
-      <!-- Auto-save indicator -->
-      <div class="flex items-center gap-2 text-xs text-gray-500 px-1">
-        <i class="fas fa-cloud-upload-alt text-green-400"></i>
-        <span id="autosave-status">Auto-saving every 10 minutes...</span>
-        <span id="last-saved"></span>
       </div>
     </div>
   </div>
 
-</div>
+  <!-- ─── STATE: Session Ended ──────────────────────────────── -->
+  <div id="state-ended" class="hidden">
 
-<!-- ─── Post-Session Rating Modal ─────────────────────────── -->
-<div id="rating-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-  <div class="bg-gray-900 border border-gray-700 rounded-3xl p-8 max-w-md w-full mx-4">
+    <!-- Session Report Card -->
+    <div class="bg-gradient-to-br from-gray-900 to-gray-950 border border-gray-700 rounded-3xl p-8 mb-4">
+      <h2 class="text-xl font-bold text-center mb-6 flex items-center justify-center gap-2">
+        <i class="fas fa-clipboard-list text-purple-400"></i> Session Report
+      </h2>
+
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+        <!-- Duration -->
+        <div class="bg-gray-800/60 rounded-2xl p-4 text-center border border-gray-700">
+          <i class="fas fa-clock text-blue-400 text-xl mb-2"></i>
+          <p class="text-xs text-gray-500 mb-1">Duration</p>
+          <p class="font-mono font-bold text-white text-lg" id="final-duration">00:00:00</p>
+        </div>
+        <!-- Earnings -->
+        <div class="bg-gray-800/60 rounded-2xl p-4 text-center border border-gray-700">
+          <i class="fas fa-rupee-sign text-green-400 text-xl mb-2"></i>
+          <p class="text-xs text-gray-500 mb-1">Est. Earnings</p>
+          <p class="font-bold text-green-400 text-lg" id="final-earnings">₹0.00</p>
+        </div>
+        <!-- Network Quality -->
+        <div class="bg-gray-800/60 rounded-2xl p-4 text-center border border-gray-700">
+          <i class="fas fa-wifi text-purple-400 text-xl mb-2"></i>
+          <p class="text-xs text-gray-500 mb-1">Avg. Latency</p>
+          <p class="font-mono font-bold text-white text-lg" id="final-rtt">—</p>
+        </div>
+        <!-- Packet Loss -->
+        <div class="bg-gray-800/60 rounded-2xl p-4 text-center border border-gray-700">
+          <i class="fas fa-exclamation-triangle text-yellow-400 text-xl mb-2"></i>
+          <p class="text-xs text-gray-500 mb-1">Packet Loss</p>
+          <p class="font-mono font-bold text-white text-lg" id="final-loss">—</p>
+        </div>
+      </div>
+
+      <!-- Overall quality bar -->
+      <div class="mb-6">
+        <div class="flex justify-between items-center mb-2">
+          <span class="text-sm text-gray-400">Overall Connection Quality</span>
+          <span class="text-sm font-semibold" id="quality-score-label">Calculating...</span>
+        </div>
+        <div class="h-3 bg-gray-800 rounded-full overflow-hidden">
+          <div id="quality-bar" class="h-full bg-gradient-to-r from-green-400 to-emerald-500 rounded-full transition-all duration-1000" style="width:0%"></div>
+        </div>
+      </div>
+
+      <!-- Ended by -->
+      <p class="text-center text-sm text-gray-400" id="ended-by-text"></p>
+    </div>
+
+    <!-- Upload Section — Clean, just a button -->
+    <div class="bg-gradient-to-br from-blue-900/20 to-indigo-900/10 border border-blue-500/30 rounded-3xl p-8 text-center">
+      <div class="w-16 h-16 bg-blue-500/20 rounded-full flex items-center justify-center mx-auto mb-4 ring-3 ring-blue-400/30">
+        <i class="fas fa-cloud-upload-alt text-blue-400 text-2xl"></i>
+      </div>
+      <h3 class="text-xl font-bold mb-2">Upload Your Recording</h3>
+      <p class="text-gray-400 text-sm mb-6 max-w-md mx-auto">
+        Click <strong class="text-white">Upload Recording</strong> to send your session to Google Drive.
+        Admin will review and release your payment within 24 hours.
+      </p>
+
+      <!-- Upload progress (hidden until started) -->
+      <div id="upload-progress-area" class="hidden mb-6 max-w-sm mx-auto">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-sm text-gray-400" id="upload-status-text">Uploading...</span>
+          <span class="text-sm font-mono font-bold text-blue-400" id="upload-pct">0%</span>
+        </div>
+        <div class="h-3 bg-gray-800 rounded-full overflow-hidden">
+          <div id="upload-progress-bar" class="h-full bg-gradient-to-r from-blue-400 to-indigo-500 rounded-full transition-all" style="width:0%"></div>
+        </div>
+      </div>
+
+      <!-- Upload success (hidden until done) -->
+      <div id="upload-success-area" class="hidden mb-6 bg-green-900/20 border border-green-500/30 rounded-2xl p-4 max-w-sm mx-auto">
+        <div class="flex items-center gap-3">
+          <i class="fas fa-check-circle text-green-400 text-2xl"></i>
+          <div class="text-left">
+            <p class="font-semibold text-green-400 text-sm">Upload Complete!</p>
+            <p class="text-xs text-gray-400">Admin will review and release payment within 24h.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Buttons -->
+      <div class="flex flex-col sm:flex-row gap-3 justify-center">
+        <button id="btn-upload" onclick="uploadRecording()"
+          class="px-10 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold rounded-2xl transition-all hover:scale-105 flex items-center justify-center gap-2 shadow-lg shadow-blue-900/30">
+          <i class="fas fa-cloud-upload-alt" id="upload-btn-icon"></i>
+          <span id="upload-btn-text">Upload Recording</span>
+        </button>
+        <a href="/my-jobs/" class="px-6 py-3.5 bg-gray-800 hover:bg-gray-700 text-gray-300 font-semibold rounded-2xl transition-colors text-center">
+          <i class="fas fa-arrow-left mr-1"></i> My Jobs
+        </a>
+      </div>
+    </div>
+  </div>
+
+</div><!-- end session-container -->
+
+<!-- ─── Rating Modal ───────────────────────────────────────────── -->
+<div id="rating-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+  <div class="bg-gray-900 border border-gray-700 rounded-3xl p-8 max-w-md w-full">
     <h2 class="text-xl font-bold text-center mb-2">Rate Your Partner</h2>
-    <p class="text-gray-400 text-center text-sm mb-6">How was your recording session?</p>
-    <div class="flex justify-center gap-3 mb-6" id="star-rating">
+    <p class="text-gray-400 text-center text-sm mb-6">How was the session with <strong class="text-white">{{ partner.full_name }}</strong>?</p>
+    <div class="flex justify-center gap-3 mb-6">
       {% for i in "12345" %}
-      <button onclick="setRating({{ forloop.counter }})" class="star-btn text-4xl text-gray-600 hover:text-yellow-400 transition-colors" data-value="{{ forloop.counter }}">★</button>
+      <button onclick="setRating({{ forloop.counter }})" class="star-btn text-4xl text-gray-600 hover:text-yellow-400 transition-colors">★</button>
       {% endfor %}
     </div>
-    <textarea id="rating-feedback" placeholder="Leave optional feedback..." rows="3"
+    <textarea id="rating-feedback" placeholder="Optional feedback..." rows="3"
       class="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-sm resize-none focus:border-green-500 outline-none mb-4"></textarea>
     <div class="flex gap-3">
-      <button onclick="submitRating()" class="flex-1 bg-gradient-to-r from-green-500 to-emerald-600 text-white font-semibold py-3 rounded-xl transition-all hover:scale-105">
-        Submit Rating
-      </button>
-      <button onclick="skipRating()" class="px-6 bg-gray-800 hover:bg-gray-700 text-gray-400 rounded-xl transition-colors">
-        Skip
-      </button>
+      <button onclick="submitRating()" class="flex-1 bg-gradient-to-r from-green-500 to-emerald-600 text-white font-semibold py-3 rounded-xl hover:scale-105 transition-all">Submit Rating</button>
+      <button onclick="skipRating()" class="px-6 bg-gray-800 hover:bg-gray-700 text-gray-400 rounded-xl transition-colors">Skip</button>
     </div>
   </div>
 </div>
@@ -158,10 +319,22 @@
 
 {% block extra_scripts %}
 <script>
-  const SESSION_ID = "{{ session.session_id }}";
-  const PARTNER_ID = "{{ partner.pk }}";
+  const SESSION_ID      = "{{ session.session_id }}";
+  const PARTNER_ID      = "{{ partner.pk }}";
+  const CURRENT_USER_ID = "{{ request.user.pk }}";
+  const IS_INITIATOR    = {{ is_initiator|yesno:"true,false" }};
   const PER_MINUTE_RATE = {{ per_minute_rate|default:2.5 }};
 </script>
 <script src="{% static 'js/webrtc.js' %}"></script>
 <script src="{% static 'js/recording.js' %}"></script>
+<script>
+  // Update leave/cancel button label based on recording state
+  const _stateRecEl = document.getElementById('state-recording');
+  if (_stateRecEl) {
+    new MutationObserver(() => {
+      const lbl = document.getElementById('leave-btn-text');
+      if (lbl) lbl.textContent = _stateRecEl.classList.contains('hidden') ? 'Cancel' : 'Stop & Leave';
+    }).observe(_stateRecEl, { attributes: true, attributeFilter: ['class'] });
+  }
+</script>
 {% endblock %}

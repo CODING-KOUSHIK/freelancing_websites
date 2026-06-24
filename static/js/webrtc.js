@@ -1,371 +1,225 @@
 /**
- * WebRTC Manager — Dual-channel voice recording with peer connection
- * AI Voice Data Marketplace
+ * webrtc.js — WebRTC peer connection manager for VoiceMarket recording rooms
  *
- * Creates a peer connection, captures local mic, sends to partner,
- * and records both channels separately in WAV 16-bit PCM format.
+ * IMPORTANT: Does NOT open its own WebSocket.
+ * It receives signaling messages forwarded from recording.js (single WS).
+ *
+ * API:
+ *   window.webRTC.init(localStream)  — called after mic permission granted
+ *   window.webRTC.handleSignal(msg)  — called from recording.js on webrtc.* messages
+ *   window.webRTC.sendViaWS(data)    — injected by recording.js
+ *   window.webRTC.cleanup()          — called on session end
  */
 
-class WebRTCManager {
-  constructor(sessionId, isInitiator) {
-    this.sessionId = sessionId;
-    this.isInitiator = isInitiator;
-    this.pc = null;
-    this.localStream = null;
-    this.remoteStream = null;
-    this.ws = null;
-    this.connected = false;
-    this.peerJoined = false;
-    this.offerCreated = false;
-    this.signalingReady = false;
-    this.pendingSignals = [];
-    this.pendingIceCandidates = [];
+window.webRTC = (() => {
+  let pc = null;
+  let localStream = null;
+  let remoteStream = null;
+  let isInitiator = false;
+  let audioCtx = null;
+  let localAnalyser = null;
+  let remoteAnalyser = null;
+  let peerConnected = false;
+  let offerSent = false;
+  let pendingCandidates = [];
 
-    // Audio analysis
-    this.localAnalyser = null;
-    this.remoteAnalyser = null;
-    this.audioContext = null;
+  const ICE_SERVERS = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:openrelay.metered.ca:80' },
+  ];
 
-    // ICE servers
-    this.iceServers = [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' },
-      { urls: 'stun:stun2.l.google.com:19302' },
-    ];
+  // Injected by recording.js so we can send back through its WS
+  let _sendFn = null;
 
-    // Add TURN server if configured
-    if (typeof TURN_URL !== 'undefined' && TURN_URL) {
-      this.iceServers.push({
-        urls: TURN_URL,
-        username: typeof TURN_USERNAME !== 'undefined' ? TURN_USERNAME : '',
-        credential: typeof TURN_CREDENTIAL !== 'undefined' ? TURN_CREDENTIAL : '',
-      });
-    }
+  function setSendFn(fn) { _sendFn = fn; }
+
+  function send(data) {
+    if (_sendFn) _sendFn(data);
+    else console.warn('[WebRTC] No send function registered');
   }
 
-  async init() {
-    try {
-      // Create the peer connection first so early peer events can be queued safely.
-      this.createPeerConnection();
+  // ─── Init ────────────────────────────────────────────────────
+  function init(stream, initiator) {
+    localStream = stream;
+    isInitiator = initiator;
 
-      // Connect signaling WebSocket
-      this.connectSignaling();
+    // Setup audio analysis for waveform
+    setupLocalAnalysis();
 
-      // Get local media
-      this.localStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          sampleRate: 48000,
-          channelCount: 1,
-        },
-        video: false,
-      });
+    // Create peer connection
+    createPC();
 
-      document.getElementById('local-audio').srcObject = this.localStream;
+    // Add local tracks
+    localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
 
-      // Setup audio analysis
-      this.setupAudioAnalysis();
-
-      // Add local tracks
-      this.localStream.getTracks().forEach(track => {
-        this.pc.addTrack(track, this.localStream);
-      });
-
-      this.signalingReady = true;
-      await this.flushPendingSignals();
-      await this.flushPendingIceCandidates();
-      await this.tryCreateOffer();
-
-      this.updateStatus('Waiting for peer...', 'yellow');
-
-    } catch (err) {
-      console.error('WebRTC init error:', err);
-      if (err.name === 'NotAllowedError') {
-        this.updateStatus('Microphone access denied', 'red');
-      } else {
-        this.updateStatus('Error: ' + err.message, 'red');
-      }
-    }
+    console.log('[WebRTC] Initialized. isInitiator:', isInitiator);
   }
 
-  connectSignaling() {
-    const url = `${WS_PROTOCOL}//${window.location.host}/ws/recording/${this.sessionId}/`;
-    this.ws = new WebSocket(url);
+  function createPC() {
+    pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
 
-    this.ws.onopen = () => {
-      console.log('[WebRTC] Signaling connected');
-    };
-
-    this.ws.onmessage = async (e) => {
-      const data = JSON.parse(e.data);
-
-      switch (data.type) {
-        case 'peer.joined':
-          this.handlePeerJoined(data);
-          break;
-
-        case 'webrtc.signal':
-          if (data.from_user !== CURRENT_USER_ID) {
-            await this.handleSignal(data);
-          }
-          break;
-
-        case 'peer.left':
-          if (data.user_id !== CURRENT_USER_ID) {
-            console.log('[WebRTC] Peer left');
-            document.getElementById('partner-online-dot').className =
-              'absolute bottom-0 right-0 w-5 h-5 bg-gray-600 rounded-full border-2 border-gray-900';
-            this.updateStatus('Peer disconnected', 'red');
-          }
-          break;
-
-        case 'recording.ended':
-          this.updateStatus('Session ended', 'gray');
-          break;
-      }
-    };
-
-    this.ws.onclose = () => {
-      console.log('[WebRTC] Signaling disconnected');
-    };
-  }
-
-  handlePeerJoined(data) {
-    if (data.user_id === CURRENT_USER_ID) return;
-
-    console.log('[WebRTC] Peer joined:', data.user_name);
-    this.peerJoined = true;
-
-    const dot = document.getElementById('partner-online-dot');
-    if (dot) {
-      dot.className = 'absolute bottom-0 right-0 w-5 h-5 bg-green-400 rounded-full border-2 border-gray-900';
-    }
-
-    if (this.isInitiator) {
-      this.tryCreateOffer();
-    }
-  }
-
-  createPeerConnection() {
-    this.pc = new RTCPeerConnection({ iceServers: this.iceServers });
-
-    this.pc.onicecandidate = (event) => {
-      if (event.candidate && this.ws.readyState === WebSocket.OPEN) {
-        this.ws.send(JSON.stringify({
+    pc.onicecandidate = (e) => {
+      if (e.candidate) {
+        send({
           type: 'webrtc.ice_candidate',
-          payload: { candidate: event.candidate },
-        }));
+          payload: { candidate: e.candidate },
+        });
       }
     };
 
-    this.pc.ontrack = (event) => {
+    pc.ontrack = (e) => {
       console.log('[WebRTC] Remote track received');
-      this.remoteStream = event.streams[0];
-      document.getElementById('remote-audio').srcObject = this.remoteStream;
-      this.setupRemoteAnalysis();
-      this.connected = true;
-      this.updateStatus('Recording in progress', 'green');
-      document.getElementById('rec-dot').classList.add('rec-pulse');
+      remoteStream = e.streams[0];
+      const remoteAudio = document.getElementById('remote-audio');
+      if (remoteAudio) remoteAudio.srcObject = remoteStream;
+      setupRemoteAnalysis();
+      peerConnected = true;
 
-      // Start recording immediately, then sync session state with the API.
-      if (typeof recordingManager !== 'undefined') {
-        recordingManager.startRecording(this.localStream, this.remoteStream);
+      // Expose stream for recording
+      window.webRTC.remoteStream = remoteStream;
+    };
+
+    pc.onconnectionstatechange = () => {
+      console.log('[WebRTC] Connection state:', pc.connectionState);
+      if (pc.connectionState === 'failed') {
+        console.error('[WebRTC] Connection failed — attempting restart');
+        restartIce();
       }
+    };
 
-      (async () => {
+    pc.oniceconnectionstatechange = () => {
+      console.log('[WebRTC] ICE state:', pc.iceConnectionState);
+    };
+  }
+
+  async function createOffer() {
+    if (!pc || offerSent) return;
+    try {
+      const offer = await pc.createOffer({ offerToReceiveAudio: true });
+      await pc.setLocalDescription(offer);
+      send({ type: 'webrtc.offer', payload: { sdp: pc.localDescription } });
+      offerSent = true;
+      console.log('[WebRTC] Offer sent');
+    } catch (e) {
+      console.error('[WebRTC] createOffer error:', e);
+    }
+  }
+
+  async function handleSignal(msg) {
+    if (!pc) return;
+
+    const stype = msg.signal_type;
+
+    if (stype === 'offer') {
+      console.log('[WebRTC] Received offer');
+      await pc.setRemoteDescription(new RTCSessionDescription(msg.payload.sdp));
+      await flushCandidates();
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      send({ type: 'webrtc.answer', payload: { sdp: pc.localDescription } });
+      console.log('[WebRTC] Answer sent');
+    } else if (stype === 'answer') {
+      console.log('[WebRTC] Received answer');
+      await pc.setRemoteDescription(new RTCSessionDescription(msg.payload.sdp));
+      await flushCandidates();
+    } else if (stype === 'ice_candidate' && msg.payload?.candidate) {
+      if (!pc.remoteDescription) {
+        pendingCandidates.push(msg.payload.candidate);
+      } else {
         try {
-          await apiFetch(`/api/recordings/${this.sessionId}/start/`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-          });
-        } catch (error) {
-          console.error('[WebRTC] Failed to sync recording session start:', error);
+          await pc.addIceCandidate(new RTCIceCandidate(msg.payload.candidate));
+        } catch (e) {
+          console.warn('[WebRTC] ICE candidate error:', e.message);
         }
-      })();
-    };
-
-    this.pc.onconnectionstatechange = () => {
-      console.log('[WebRTC] Connection state:', this.pc.connectionState);
-      if (this.pc.connectionState === 'failed') {
-        this.updateStatus('Connection failed', 'red');
-      } else if (this.pc.connectionState === 'disconnected') {
-        this.updateStatus('Reconnecting...', 'yellow');
       }
-    };
+    }
   }
 
-  async createOffer() {
+  async function flushCandidates() {
+    const toAdd = [...pendingCandidates];
+    pendingCandidates = [];
+    for (const c of toAdd) {
+      try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch (e) {}
+    }
+  }
+
+  async function restartIce() {
+    if (!pc || !isInitiator) return;
     try {
-      if (!this.pc) return false;
-      const offer = await this.pc.createOffer();
-      await this.pc.setLocalDescription(offer);
-      this.ws.send(JSON.stringify({
-        type: 'webrtc.offer',
-        payload: { sdp: this.pc.localDescription },
-      }));
-      return true;
-    } catch (err) {
-      console.error('Create offer error:', err);
-      return false;
+      const offer = await pc.createOffer({ iceRestart: true });
+      await pc.setLocalDescription(offer);
+      send({ type: 'webrtc.offer', payload: { sdp: pc.localDescription } });
+    } catch (e) {
+      console.error('[WebRTC] ICE restart failed:', e);
     }
   }
 
-  async handleSignal(data) {
-    if (!this.signalingReady || !this.pc) {
-      this.pendingSignals.push(data);
-      return;
+  // Called when peer.joined arrives from consumer (meaning both are in room)
+  function onPeerJoined() {
+    if (isInitiator && pc) {
+      createOffer();
     }
-
-    await this.processSignal(data);
   }
 
-  async processSignal(data) {
+  // ─── Audio Analysis ──────────────────────────────────────────
+  function setupLocalAnalysis() {
     try {
-      if (data.signal_type === 'offer') {
-        await this.pc.setRemoteDescription(new RTCSessionDescription(data.payload.sdp));
-        await this.flushPendingIceCandidates();
-        const answer = await this.pc.createAnswer();
-        await this.pc.setLocalDescription(answer);
-        this.ws.send(JSON.stringify({
-          type: 'webrtc.answer',
-          payload: { sdp: this.pc.localDescription },
-        }));
-      } else if (data.signal_type === 'answer') {
-        await this.pc.setRemoteDescription(new RTCSessionDescription(data.payload.sdp));
-        await this.flushPendingIceCandidates();
-      } else if (data.signal_type === 'ice_candidate' && data.payload.candidate) {
-        if (!this.pc.remoteDescription) {
-          this.pendingIceCandidates.push(data.payload.candidate);
-          return;
-        }
-        await this.pc.addIceCandidate(new RTCIceCandidate(data.payload.candidate));
-      }
-    } catch (err) {
-      console.error('Handle signal error:', err);
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      const src = audioCtx.createMediaStreamSource(localStream);
+      localAnalyser = audioCtx.createAnalyser();
+      localAnalyser.fftSize = 256;
+      src.connect(localAnalyser);
+    } catch (e) { console.warn('[WebRTC] Audio analysis setup failed:', e); }
+  }
+
+  function setupRemoteAnalysis() {
+    if (!remoteStream || !audioCtx) return;
+    try {
+      const src = audioCtx.createMediaStreamSource(remoteStream);
+      remoteAnalyser = audioCtx.createAnalyser();
+      remoteAnalyser.fftSize = 256;
+      src.connect(remoteAnalyser);
+    } catch (e) { console.warn('[WebRTC] Remote analysis setup failed:', e); }
+  }
+
+  function getLevel(analyser) {
+    if (!analyser) return 0;
+    const buf = new Uint8Array(analyser.frequencyBinCount);
+    analyser.getByteFrequencyData(buf);
+    return Math.min(100, (buf.reduce((a, b) => a + b, 0) / buf.length) * 2);
+  }
+
+  function getLocalLevel() { return getLevel(localAnalyser); }
+  function getRemoteLevel() { return getLevel(remoteAnalyser); }
+
+  // ─── Controls ────────────────────────────────────────────────
+  function setMute(muted) {
+    if (localStream) {
+      localStream.getAudioTracks().forEach(t => { t.enabled = !muted; });
     }
   }
 
-  async flushPendingSignals() {
-    if (!this.signalingReady || !this.pc || this.pendingSignals.length === 0) return;
-    const signals = this.pendingSignals.splice(0, this.pendingSignals.length);
-    for (const signal of signals) {
-      await this.processSignal(signal);
-    }
+  function cleanup() {
+    if (localStream) localStream.getTracks().forEach(t => t.stop());
+    if (pc) { pc.close(); pc = null; }
+    if (audioCtx) { audioCtx.close(); audioCtx = null; }
+    peerConnected = false;
   }
 
-  async flushPendingIceCandidates() {
-    if (!this.pc || !this.pc.remoteDescription || this.pendingIceCandidates.length === 0) return;
-    const candidates = this.pendingIceCandidates.splice(0, this.pendingIceCandidates.length);
-    for (const candidate of candidates) {
-      try {
-        await this.pc.addIceCandidate(new RTCIceCandidate(candidate));
-      } catch (err) {
-        console.error('Add pending ICE candidate error:', err);
-      }
-    }
-  }
-
-  async tryCreateOffer() {
-    if (!this.isInitiator || !this.peerJoined || !this.signalingReady || !this.pc || !this.localStream) return;
-    if (this.offerCreated) return;
-
-    const created = await this.createOffer();
-    if (created) {
-      this.offerCreated = true;
-    }
-  }
-
-  setupAudioAnalysis() {
-    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    if (this.audioContext.state === 'suspended') {
-      this.audioContext.resume().catch((err) => {
-        console.warn('[WebRTC] Unable to resume audio context:', err);
-      });
-    }
-    const source = this.audioContext.createMediaStreamSource(this.localStream);
-    this.localAnalyser = this.audioContext.createAnalyser();
-    this.localAnalyser.fftSize = 256;
-    source.connect(this.localAnalyser);
-  }
-
-  setupRemoteAnalysis() {
-    if (!this.remoteStream || !this.audioContext) return;
-    const source = this.audioContext.createMediaStreamSource(this.remoteStream);
-    this.remoteAnalyser = this.audioContext.createAnalyser();
-    this.remoteAnalyser.fftSize = 256;
-    source.connect(this.remoteAnalyser);
-  }
-
-  getLocalLevel() {
-    if (!this.localAnalyser) return 0;
-    const data = new Uint8Array(this.localAnalyser.frequencyBinCount);
-    this.localAnalyser.getByteFrequencyData(data);
-    return Math.min(100, (data.reduce((a, b) => a + b, 0) / data.length) * 1.5);
-  }
-
-  getRemoteLevel() {
-    if (!this.remoteAnalyser) return 0;
-    const data = new Uint8Array(this.remoteAnalyser.frequencyBinCount);
-    this.remoteAnalyser.getByteFrequencyData(data);
-    return Math.min(100, (data.reduce((a, b) => a + b, 0) / data.length) * 1.5);
-  }
-
-  updateStatus(text, color) {
-    const statusEl = document.getElementById('session-status-badge');
-    const recText = document.getElementById('rec-status-text');
-    if (statusEl) {
-      const colors = {
-        green: 'bg-green-500/10 text-green-400 border border-green-500/20',
-        yellow: 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20',
-        red: 'bg-red-500/10 text-red-400 border border-red-500/20',
-        gray: 'bg-gray-700/50 text-gray-400 border border-gray-600',
-      };
-      statusEl.className = `inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-semibold ${colors[color] || colors.gray}`;
-      statusEl.innerHTML = `<span class="w-2 h-2 bg-${color}-400 rounded-full ${color === 'green' ? 'animate-pulse' : ''}"></span> ${text}`;
-    }
-    if (recText) recText.textContent = text;
-  }
-
-  endSession() {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({
-        type: 'recording.end',
-        duration: typeof timerSeconds !== 'undefined' ? timerSeconds : 0,
-      }));
-    }
-    if (this.localStream) {
-      this.localStream.getTracks().forEach(t => t.stop());
-    }
-    if (this.pc) {
-      this.pc.close();
-    }
-    if (this.audioContext) {
-      this.audioContext.close();
-    }
-    this.connected = false;
-  }
-
-  toggleMute() {
-    if (!this.localStream) return false;
-    const track = this.localStream.getAudioTracks()[0];
-    if (track) {
-      track.enabled = !track.enabled;
-      return !track.enabled; // returns true if now muted
-    }
-    return false;
-  }
-}
-
-/* ─── Global init (called from session.html) ─────────────── */
-let webrtcManager;
-
-document.addEventListener('DOMContentLoaded', () => {
-  if (typeof SESSION_ID !== 'undefined') {
-    // Determine if this user is the initiator (user_a)
-    const isInitiator = document.body.dataset.initiator === 'true';
-    webrtcManager = new WebRTCManager(SESSION_ID, isInitiator);
-    webrtcManager.init();
-  }
-});
+  return {
+    init,
+    handleSignal,
+    onPeerJoined,
+    setSendFn,
+    cleanup,
+    setMute,
+    getLocalLevel,
+    getRemoteLevel,
+    get localStream() { return localStream; },
+    get peerConnected() { return peerConnected; },
+    get _pc() { return pc; },
+  };
+})();

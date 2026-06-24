@@ -22,47 +22,118 @@ class SendRecordingRequestView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
+        """
+        Send a recording request to another user.
+        Both requester AND target must have an approved JobApplication
+        for the same audio_upload job.
+        """
         serializer = RecordingRequestSerializer(data=request.data, context={"request": request})
-        if serializer.is_valid():
-            from django.contrib.auth import get_user_model
-            User = get_user_model()
-            target = User.objects.get(pk=serializer.validated_data["target_user_id"])
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-            session = RecordingSession.objects.create(
-                user_a=request.user,
-                user_b=target,
-                status="requested",
-                sample_rate=serializer.validated_data.get("sample_rate", "48kHz"),
-            )
+        from django.contrib.auth import get_user_model
+        from apps.marketplace.models import JobApplication
+        User = get_user_model()
 
-            # Check auto-accept
-            if target.auto_accept_requests:
-                session.status = "accepted"
-                session.accepted_at = timezone.now()
-                session.save(update_fields=["status", "accepted_at"])
-                Notification.send(
-                    user=request.user,
-                    notification_type="recording_accepted",
-                    title="Request Auto-Accepted",
-                    message=f"{target.full_name} has auto-accepted your recording request.",
-                    payload={"session_id": str(session.session_id)},
-                    action_url=f"/recordings/{session.session_id}/",
-                )
-            else:
-                Notification.send(
-                    user=target,
-                    notification_type="recording_request",
-                    title="New Recording Request 🎙",
-                    message=f"{request.user.full_name} wants to do a recording session with you.",
-                    payload={"session_id": str(session.session_id), "from_user": str(request.user.pk)},
-                    action_url=f"/recordings/{session.session_id}/",
-                )
+        target_id = serializer.validated_data["target_user_id"]
+        job_id = serializer.validated_data.get("job_id")  # optional — validated below
 
+        try:
+            target = User.objects.get(pk=target_id)
+        except User.DoesNotExist:
+            return Response({"error": "Target user not found."}, status=404)
+
+        if str(target.pk) == str(request.user.pk):
+            return Response({"error": "You cannot send a request to yourself."}, status=400)
+
+        # Find a shared approved audio job between requester and target
+        requester_approved_jobs = set(
+            JobApplication.objects.filter(
+                applicant=request.user,
+                status="approved",
+                job__submission_type="audio_upload",
+                job__status="published",
+            ).values_list("job_id", flat=True)
+        )
+
+        target_approved_jobs = set(
+            JobApplication.objects.filter(
+                applicant=target,
+                status="approved",
+                job__submission_type="audio_upload",
+                job__status="published",
+            ).values_list("job_id", flat=True)
+        )
+
+        shared_jobs = requester_approved_jobs & target_approved_jobs
+
+        if not shared_jobs:
             return Response(
-                RecordingSessionSerializer(session).data,
-                status=status.HTTP_201_CREATED,
+                {"error": "No shared approved recording job found. Both users must be approved for the same audio job."},
+                status=status.HTTP_403_FORBIDDEN,
             )
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        # Use provided job_id if valid, else pick the first shared job
+        if job_id and int(job_id) in shared_jobs:
+            selected_job_id = int(job_id)
+        else:
+            selected_job_id = next(iter(shared_jobs))
+
+        requester_application = JobApplication.objects.get(
+            applicant=request.user, job_id=selected_job_id
+        )
+
+        # Check no active session already exists between these users for this job
+        existing = RecordingSession.objects.filter(
+            job_application=requester_application,
+            status__in=["requested", "accepted", "in_progress"],
+        ).first()
+        if existing:
+            return Response(
+                {
+                    "error": "You already have an active session for this job.",
+                    "session_id": str(existing.session_id),
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        session = RecordingSession.objects.create(
+            user_a=request.user,
+            user_b=target,
+            status="requested",
+            sample_rate=serializer.validated_data.get("sample_rate", "48kHz"),
+            job_application=requester_application,
+        )
+
+        if target.auto_accept_requests:
+            session.status = "accepted"
+            session.accepted_at = timezone.now()
+            session.save(update_fields=["status", "accepted_at"])
+            Notification.send(
+                user=request.user,
+                notification_type="recording_accepted",
+                title="Request Auto-Accepted",
+                message=f"{target.full_name} auto-accepted your recording request.",
+                payload={"session_id": str(session.session_id)},
+                action_url=f"/recordings/{session.session_id}/",
+            )
+        else:
+            Notification.send(
+                user=target,
+                notification_type="recording_request",
+                title="New Recording Request 🎙",
+                message=f"{request.user.full_name} wants to record with you.",
+                payload={
+                    "session_id": str(session.session_id),
+                    "from_user": str(request.user.pk),
+                },
+                action_url=f"/recordings/{session.session_id}/",
+            )
+
+        return Response(
+            RecordingSessionSerializer(session).data,
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class AcceptRecordingRequestView(APIView):
@@ -403,3 +474,141 @@ class RecordingLibraryView(APIView):
             })
 
         return Response({"sessions": results, "total": len(results)})
+
+
+# ─── Partner Picker ────────────────────────────────────────────────────────────
+
+class AvailablePartnersView(APIView):
+    """
+    Returns a list of users who are:
+    1. Approved for the same job as the current user
+    2. Currently online (presence.is_online)
+    3. Not the current user themselves
+    4. Do NOT already have an active session with the current user
+
+    GET /api/recordings/partners/<job_id>/
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, job_id):
+        from apps.marketplace.models import JobApplication, JobPosting
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+
+        # Validate job exists and is audio_upload
+        try:
+            job = JobPosting.objects.get(id=job_id, submission_type="audio_upload")
+        except JobPosting.DoesNotExist:
+            return Response({"error": "Job not found or not a voice recording job."}, status=404)
+
+        # Check current user is approved for this job
+        requester_app = JobApplication.objects.filter(
+            applicant=request.user,
+            job=job,
+            status="approved",
+        ).first()
+        if not requester_app:
+            return Response({"error": "You are not approved for this job."}, status=403)
+
+        # Get all OTHER approved applicants for this job
+        approved_user_ids = JobApplication.objects.filter(
+            job=job,
+            status="approved",
+        ).exclude(applicant=request.user).values_list("applicant_id", flat=True)
+
+        # Filter to only online users
+        online_users = User.objects.filter(
+            pk__in=approved_user_ids,
+            presence__is_online=True,
+        ).select_related("presence").order_by("full_name")
+
+        # Exclude users who already have an active session with the requester
+        active_partner_ids = set(
+            RecordingSession.objects.filter(
+                status__in=["requested", "accepted", "in_progress"],
+            ).filter(
+                Q(user_a=request.user) | Q(user_b=request.user)
+            ).values_list("user_b_id", flat=True)
+        ) | set(
+            RecordingSession.objects.filter(
+                status__in=["requested", "accepted", "in_progress"],
+            ).filter(
+                Q(user_a=request.user) | Q(user_b=request.user)
+            ).values_list("user_a_id", flat=True)
+        )
+        active_partner_ids.discard(request.user.pk)
+
+        results = []
+        for user in online_users:
+            if user.pk in active_partner_ids:
+                continue
+            results.append({
+                "id": str(user.pk),
+                "full_name": user.full_name,
+                "level": user.level,
+                "reputation_score": float(user.reputation_score),
+                "profile_photo": user.profile_photo.url if user.profile_photo else None,
+                "short_name": user.full_name.split()[0] if user.full_name else "?",
+            })
+
+        return Response({
+            "job_id": job.id,
+            "job_title": job.title,
+            "job_code": job.job_id,
+            "partners": results,
+            "total": len(results),
+        })
+
+
+class RecordingStatsView(APIView):
+    """
+    Returns recording stats for:
+    - My personal stats (completed, rejected, pending)
+    - Platform-wide stats (used in the online users panel to show counters)
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        from django.db.models import Count, Q as DQ
+        user = request.user
+
+        # ── Personal stats ────────────────────────────────────────
+        my_sessions = RecordingSession.objects.filter(
+            DQ(user_a=user) | DQ(user_b=user)
+        )
+
+        personal = {
+            "completed": my_sessions.filter(status="completed").count(),
+            "in_progress": my_sessions.filter(status="in_progress").count(),
+            "requested": my_sessions.filter(status="requested").count(),
+            "rejected": my_sessions.filter(status="rejected").count(),
+            "cancelled": my_sessions.filter(status="cancelled").count(),
+            "total_duration_seconds": sum(
+                s.duration_seconds or 0
+                for s in my_sessions.filter(status="completed")
+            ),
+        }
+
+        # ── Platform-wide stats (last 30 days) ────────────────────
+        from django.utils.timezone import now
+        from datetime import timedelta
+        cutoff = now() - timedelta(days=30)
+
+        platform_qs = RecordingSession.objects.filter(requested_at__gte=cutoff)
+        platform = {
+            "total_requests": platform_qs.count(),
+            "completed": platform_qs.filter(status="completed").count(),
+            "rejected": platform_qs.filter(status="rejected").count(),
+            "in_progress": platform_qs.filter(status="in_progress").count(),
+            "success_rate": 0,
+        }
+        if platform["total_requests"] > 0:
+            platform["success_rate"] = round(
+                platform["completed"] / platform["total_requests"] * 100, 1
+            )
+
+        return Response({
+            "personal": personal,
+            "platform": platform,
+        })
+

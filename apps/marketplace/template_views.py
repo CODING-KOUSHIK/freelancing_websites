@@ -135,3 +135,26 @@ def portal_support_page(request):
 @user_passes_test(lambda user: user.is_authenticated and user.is_staff)
 def portal_settings_page(request):
     return portal_dashboard_page(request)
+
+
+@login_required
+def my_jobs_page(request):
+    tabs = [
+        ("applied", "Applied", "fas fa-paper-plane"),
+        ("active", "Active", "fas fa-play-circle"),
+        ("pending", "Pending Review", "fas fa-clock"),
+        ("completed", "Completed", "fas fa-check-circle"),
+        ("rejected", "Rejected", "fas fa-times-circle"),
+    ]
+    return render(request, "marketplace/my_jobs.html", {"tabs": tabs})
+
+
+@login_required
+def trending_jobs_page(request):
+    trending = repository.public_jobs().filter(is_trending=True).order_by("trending_priority")[:20]
+    return render(request, "marketplace/jobs.html", {
+        "categories": repository.categories(),
+        "jobs": repository.public_jobs()[:48],
+        "trending_jobs": trending,
+    })
+

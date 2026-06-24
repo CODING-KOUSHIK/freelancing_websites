@@ -95,45 +95,81 @@ class DriveService:
 
     def upload_session(self, session) -> dict:
         """
-        Organizes and uploads all files for a RecordingSession.
-        Structure: root_folder / YYYY-MM-DD / session_id /
-        Returns dict with file id and link.
+        Upload recording files for a session to Google Drive.
+
+        Folder structure:
+          root / YYYY-MM-DD / session_XXXXXXXX / requester / recording_JOB-XXX_username.wav
+          root / YYYY-MM-DD / session_XXXXXXXX / partner   / recording_JOB-XXX_username.wav
+
+        Both files share the SAME filename so they can be easily paired.
+        Returns dict with the last uploaded file's id and link.
         """
         try:
-            date_folder_name = datetime.now().strftime("%Y-%m-%d")
-            date_folder_id = self.get_or_create_folder(date_folder_name)
-            session_folder_id = self.get_or_create_folder(
-                str(session.session_id)[:12], parent_id=date_folder_id
-            )
+            # ── Level 1: Date folder ─────────────────────────────
+            date_str = datetime.now().strftime("%Y-%m-%d")
+            date_folder_id = self.get_or_create_folder(date_str)
+
+            # ── Level 2: Session folder ──────────────────────────
+            session_folder_name = f"session_{str(session.session_id)[:8]}"
+            session_folder_id = self.get_or_create_folder(session_folder_name, date_folder_id)
+
+            # ── Level 3: requester / partner sub-folders ─────────
+            requester_folder_id = self.get_or_create_folder("requester", session_folder_id)
+            partner_folder_id = self.get_or_create_folder("partner", session_folder_id)
+
             session.drive_folder_id = session_folder_id
             session.save(update_fields=["drive_folder_id"])
 
+            # ── Build the shared filename ─────────────────────────
+            # Format: recording_JOB-XXXXXXXX_username.wav
+            job_id_str = "NO-JOB"
+            if session.job_application and session.job_application.job:
+                job_id_str = session.job_application.job.job_id
+
+            requester_username = "unknown"
+            partner_username = "unknown"
+            if session.user_a:
+                requester_username = session.user_a.email.split("@")[0]
+                requester_username = "".join(c for c in requester_username if c.isalnum() or c == "_")
+            if session.user_b:
+                partner_username = session.user_b.email.split("@")[0]
+                partner_username = "".join(c for c in partner_username if c.isalnum() or c == "_")
+
+            # Same base name for both files
+            shared_filename = f"recording_{job_id_str}_{requester_username}_{partner_username}.wav"
+
+            # ── Upload files ──────────────────────────────────────
             result = {}
-            files_to_upload = []
-            if session.mixed_file and session.mixed_file.name:
-                files_to_upload.append(("mixed", session.mixed_file))
-            elif session.channel_a_file and session.channel_a_file.name:
-                files_to_upload.append(("channel_a", session.channel_a_file))
-                if session.channel_b_file and session.channel_b_file.name:
-                    files_to_upload.append(("channel_b", session.channel_b_file))
 
-            if not files_to_upload:
-                logger.warning("No files to upload for session %s", session.session_id)
-                return {}
-
-            for label, file_field in files_to_upload:
-                local_path = file_field.path
+            # user_a (requester) → requester/ folder
+            if session.channel_a_file and session.channel_a_file.name:
+                local_path = session.channel_a_file.path
                 if os.path.exists(local_path):
-                    file_name = f"{session.session_id}_{label}.wav"
-                    uploaded = self.upload_file(local_path, file_name, session_folder_id)
-                    result = uploaded  # use last uploaded as main link
+                    uploaded = self.upload_file(local_path, shared_filename, requester_folder_id)
+                    result = uploaded
+                    logger.info("Uploaded requester file for session %s", session.session_id)
                 else:
-                    logger.warning("File not found on disk: %s", local_path)
+                    logger.warning("Requester file not found on disk: %s", local_path)
+
+            # user_b (partner) → partner/ folder
+            if session.channel_b_file and session.channel_b_file.name:
+                local_path = session.channel_b_file.path
+                if os.path.exists(local_path):
+                    uploaded = self.upload_file(local_path, shared_filename, partner_folder_id)
+                    result = result or uploaded
+                    logger.info("Uploaded partner file for session %s", session.session_id)
+                else:
+                    logger.warning("Partner file not found on disk: %s", local_path)
+
+            if not result:
+                logger.warning("No files uploaded for session %s", session.session_id)
 
             return result
+
         except Exception as e:
             logger.exception("upload_session error: %s", e)
             return {}
+
 
 
 class DriveTaskService:

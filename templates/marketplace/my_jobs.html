@@ -1,0 +1,469 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}My Jobs — VoiceMarket{% endblock %}
+
+{% block content %}
+<div class="animate-fade-in">
+
+  <!-- Header -->
+  <div class="mb-8">
+    <h1 class="text-3xl font-bold bg-gradient-to-r from-green-400 to-emerald-500 bg-clip-text text-transparent">
+      My Jobs
+    </h1>
+    <p class="text-gray-400 mt-1">Track all your job applications, assignments, and earnings.</p>
+  </div>
+
+  <!-- Tabs -->
+  <div class="flex gap-2 mb-6 overflow-x-auto pb-2 scrollbar-hide" id="job-tabs">
+    {% for tab_key, tab_label, tab_icon in tabs %}
+    <button
+      onclick="switchTab('{{ tab_key }}')"
+      id="tab-{{ tab_key }}"
+      class="tab-btn flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium whitespace-nowrap transition-all border
+             {% if forloop.first %}bg-green-500/20 border-green-500/50 text-green-400{% else %}bg-gray-800 border-gray-700 text-gray-400 hover:text-gray-200{% endif %}"
+      data-tab="{{ tab_key }}"
+    >
+      <i class="{{ tab_icon }}"></i>
+      {{ tab_label }}
+      <span class="ml-1 bg-gray-700 text-gray-300 text-xs px-1.5 py-0.5 rounded-full count-badge-{{ tab_key }}">0</span>
+    </button>
+    {% endfor %}
+  </div>
+
+  <!-- Tab Panels -->
+  {% for tab_key, tab_label, tab_icon in tabs %}
+  <div id="panel-{{ tab_key }}" class="tab-panel {% if not forloop.first %}hidden{% endif %}">
+    <div id="jobs-list-{{ tab_key }}" class="space-y-4">
+      <div class="flex items-center justify-center py-16">
+        <div class="text-center">
+          <div class="w-16 h-16 bg-gray-800 rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <i class="{{ tab_icon }} text-gray-500 text-2xl"></i>
+          </div>
+          <p class="text-gray-500">Loading {{ tab_label }}...</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+
+</div>
+
+<!-- Job Card Template (hidden, used by JS) -->
+<template id="job-card-tpl">
+  <div class="job-card bg-gray-900 border border-gray-800 rounded-2xl p-5 hover:border-green-500/30 transition-all group">
+    <div class="flex items-start justify-between gap-4">
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2 mb-1">
+          <span class="status-badge text-xs font-semibold px-2 py-0.5 rounded-full"></span>
+          <span class="category-name text-xs text-gray-500"></span>
+          <span class="trending-badge hidden text-xs font-bold text-orange-400">🔥 Trending</span>
+          <span class="audio-badge hidden text-xs font-semibold px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-400 border border-purple-500/30">🎙 Voice</span>
+        </div>
+        <h3 class="job-title text-base font-semibold text-white group-hover:text-green-400 transition-colors truncate"></h3>
+        <p class="job-recruiter text-xs text-gray-400 mt-0.5"></p>
+      </div>
+      <div class="text-right shrink-0">
+        <p class="salary text-green-400 font-bold text-sm"></p>
+        <p class="applied-date text-xs text-gray-500 mt-1"></p>
+      </div>
+    </div>
+
+    <!-- Progress Bar -->
+    <div class="mt-4">
+      <div class="flex justify-between items-center mb-1">
+        <span class="text-xs text-gray-500">Progress</span>
+        <span class="progress-pct text-xs text-gray-400 font-medium">0%</span>
+      </div>
+      <div class="h-1.5 bg-gray-800 rounded-full overflow-hidden">
+        <div class="progress-bar h-full bg-gradient-to-r from-green-500 to-emerald-400 rounded-full transition-all" style="width:0%"></div>
+      </div>
+    </div>
+
+    <!-- Actions -->
+    <div class="mt-4 flex gap-2 flex-wrap">
+      <a class="view-job-btn text-xs px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg transition-colors" href="#">
+        <i class="fas fa-eye mr-1"></i>View Job
+      </a>
+      <!-- Find Partner button — shown for approved audio_upload jobs -->
+      <button class="find-partner-btn hidden text-xs px-3 py-1.5 bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40 rounded-lg transition-colors font-semibold">
+        <i class="fas fa-users mr-1"></i>Find Partner
+      </button>
+      <!-- Fallback upload for non-audio jobs -->
+      <button class="upload-btn hidden text-xs px-3 py-1.5 bg-green-500/20 hover:bg-green-500/30 text-green-400 border border-green-500/30 rounded-lg transition-colors">
+        <i class="fas fa-upload mr-1"></i>Upload Work
+      </button>
+      <span class="payment-badge hidden text-xs px-3 py-1.5 rounded-lg font-medium"></span>
+    </div>
+  </div>
+</template>
+
+</div>
+
+<!-- ─── Partner Picker Modal ──────────────────────────────────── -->
+<div id="partner-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+  <div class="bg-gray-900 border border-gray-700 rounded-3xl w-full max-w-lg shadow-2xl shadow-black/50 overflow-hidden">
+    <!-- Modal Header -->
+    <div class="bg-gradient-to-r from-purple-900/60 to-indigo-900/60 border-b border-gray-700 p-6">
+      <div class="flex items-center justify-between">
+        <div>
+          <h2 class="text-xl font-bold text-white flex items-center gap-2">
+            <i class="fas fa-users text-purple-400"></i> Find a Recording Partner
+          </h2>
+          <p id="partner-job-title" class="text-sm text-gray-400 mt-1"></p>
+        </div>
+        <button onclick="closePartnerModal()" class="w-9 h-9 flex items-center justify-center rounded-xl bg-gray-800 hover:bg-gray-700 text-gray-400 transition-colors">
+          <i class="fas fa-times"></i>
+        </button>
+      </div>
+    </div>
+
+    <!-- Search -->
+    <div class="p-4 border-b border-gray-800">
+      <div class="relative">
+        <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm"></i>
+        <input id="partner-search" type="text" placeholder="Search partners..."
+          class="w-full bg-gray-800 border border-gray-700 rounded-xl pl-9 pr-4 py-2.5 text-sm text-white placeholder-gray-500 focus:border-purple-500 outline-none transition-colors"
+          oninput="filterPartners(this.value)">
+      </div>
+    </div>
+
+    <!-- Partner List -->
+    <div id="partner-list" class="overflow-y-auto" style="max-height: 360px;">
+      <div class="flex flex-col items-center justify-center py-12 text-center" id="partner-loading">
+        <div class="w-10 h-10 border-2 border-purple-500 border-t-transparent rounded-full animate-spin mb-3"></div>
+        <p class="text-gray-400 text-sm">Finding available partners...</p>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="p-4 border-t border-gray-800 flex items-center justify-between text-xs text-gray-500">
+      <span><i class="fas fa-circle text-green-400 mr-1"></i><span id="partner-online-count">0</span> online &amp; available</span>
+      <button onclick="refreshPartners()" class="text-purple-400 hover:text-purple-300 flex items-center gap-1 transition-colors">
+        <i class="fas fa-sync-alt"></i> Refresh
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Send Request Confirmation Toast (hidden) -->
+<div id="request-toast" class="hidden fixed bottom-6 right-6 z-50 bg-gray-800 border border-green-500/30 rounded-2xl px-5 py-4 shadow-xl flex items-center gap-3">
+  <div class="w-10 h-10 bg-green-500/20 rounded-xl flex items-center justify-center">
+    <i class="fas fa-paper-plane text-green-400"></i>
+  </div>
+  <div>
+    <p class="font-semibold text-sm text-white" id="toast-title">Request sent!</p>
+    <p class="text-xs text-gray-400" id="toast-msg"></p>
+  </div>
+</div>
+
+<style>
+  .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+  .scrollbar-hide::-webkit-scrollbar { display: none; }
+  .partner-card { transition: all 0.15s ease; }
+  .partner-card:hover { background: rgba(139,92,246,0.08); border-color: rgba(139,92,246,0.4) !important; }
+</style>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const MY_JOBS_DATA = {};
+const TABS = ['applied', 'active', 'pending', 'completed', 'rejected'];
+const STATUS_MAP = {
+  applied: ['applied', 'under_review'],
+  active: ['approved', 'assigned'],
+  pending: ['submitted', 'verification'],
+  completed: ['payment_approved', 'completed'],
+  rejected: ['rejected', 'cancelled'],
+};
+const STATUS_COLORS = {
+  applied: 'bg-blue-500/20 text-blue-400',
+  under_review: 'bg-purple-500/20 text-purple-400',
+  approved: 'bg-green-500/20 text-green-400',
+  assigned: 'bg-emerald-500/20 text-emerald-400',
+  submitted: 'bg-orange-500/20 text-orange-400',
+  verification: 'bg-yellow-500/20 text-yellow-400',
+  payment_approved: 'bg-teal-500/20 text-teal-400',
+  completed: 'bg-green-500/20 text-green-500',
+  rejected: 'bg-red-500/20 text-red-400',
+  cancelled: 'bg-gray-500/20 text-gray-400',
+};
+
+// ─── Partner Picker State ───────────────────────────────────────
+let currentJobId = null;
+let allPartners = [];
+
+async function openPartnerPicker(jobId, jobTitle) {
+  currentJobId = jobId;
+  document.getElementById('partner-job-title').textContent = `Job: ${jobTitle}`;
+  document.getElementById('partner-modal').classList.remove('hidden');
+  document.getElementById('partner-search').value = '';
+  document.getElementById('partner-loading').classList.remove('hidden');
+  document.getElementById('partner-online-count').textContent = '0';
+  await loadPartners(jobId);
+}
+
+function closePartnerModal() {
+  document.getElementById('partner-modal').classList.add('hidden');
+  currentJobId = null;
+  allPartners = [];
+}
+
+async function loadPartners(jobId) {
+  try {
+    const res = await apiFetch(`/api/recordings/partners/${jobId}/`);
+    const data = await res.json();
+    allPartners = data.partners || [];
+    document.getElementById('partner-online-count').textContent = allPartners.length;
+    renderPartners(allPartners);
+  } catch (e) {
+    document.getElementById('partner-list').innerHTML = `
+      <div class="p-8 text-center text-gray-500">
+        <i class="fas fa-exclamation-triangle text-2xl mb-3 text-orange-400"></i>
+        <p>Could not load partners. Please try again.</p>
+      </div>`;
+  }
+}
+
+function filterPartners(query) {
+  const q = query.toLowerCase().trim();
+  const filtered = q ? allPartners.filter(p =>
+    p.full_name.toLowerCase().includes(q)
+  ) : allPartners;
+  renderPartners(filtered);
+}
+
+function renderPartners(partners) {
+  const list = document.getElementById('partner-list');
+  document.getElementById('partner-loading').classList.add('hidden');
+
+  if (!partners.length) {
+    list.innerHTML = `
+      <div class="p-10 text-center">
+        <div class="w-14 h-14 bg-gray-800 rounded-2xl flex items-center justify-center mx-auto mb-4">
+          <i class="fas fa-user-slash text-gray-500 text-xl"></i>
+        </div>
+        <p class="text-gray-400 font-medium">No partners online right now</p>
+        <p class="text-gray-600 text-sm mt-1">Check back soon — other approved users will appear here when they're online.</p>
+        <button onclick="refreshPartners()" class="mt-4 text-sm text-purple-400 hover:text-purple-300">
+          <i class="fas fa-sync-alt mr-1"></i>Refresh
+        </button>
+      </div>`;
+    return;
+  }
+
+  list.innerHTML = partners.map(p => {
+    const initial = (p.full_name || '?')[0].toUpperCase();
+    const avatarHtml = p.profile_photo
+      ? `<img src="${p.profile_photo}" class="w-12 h-12 rounded-full object-cover ring-2 ring-gray-700">`
+      : `<div class="w-12 h-12 rounded-full bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center text-white font-bold text-lg ring-2 ring-gray-700">${initial}</div>`;
+
+    const stars = Math.round(Math.min(p.reputation_score, 5));
+    const starsHtml = Array.from({length: 5}, (_, i) =>
+      `<i class="fas fa-star text-xs ${i < stars ? 'text-yellow-400' : 'text-gray-700'}"></i>`
+    ).join('');
+
+    return `
+      <div class="partner-card border border-gray-800 mx-3 my-2 rounded-2xl p-4 cursor-pointer flex items-center gap-4"
+           onclick="sendPartnerRequest('${p.id}', '${p.full_name.replace(/'/g, "\\'")}')">
+        <div class="relative shrink-0">
+          ${avatarHtml}
+          <span class="absolute bottom-0 right-0 w-3.5 h-3.5 bg-green-400 rounded-full border-2 border-gray-900"></span>
+        </div>
+        <div class="flex-1 min-w-0">
+          <p class="font-semibold text-white text-sm truncate">${p.full_name}</p>
+          <p class="text-xs text-purple-400 capitalize">${p.level || 'Member'}</p>
+          <div class="flex gap-0.5 mt-1">${starsHtml}</div>
+        </div>
+        <button class="shrink-0 px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold rounded-xl transition-all hover:scale-105 flex items-center gap-1.5">
+          <i class="fas fa-paper-plane"></i> Invite
+        </button>
+      </div>`;
+  }).join('');
+}
+
+async function sendPartnerRequest(targetId, targetName) {
+  closePartnerModal();
+  try {
+    const res = await apiFetch('/api/recordings/request/', {
+      method: 'POST',
+      body: JSON.stringify({ target_user_id: targetId, job_id: currentJobId }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      showRequestToast(`Request sent to ${targetName}!`, `Waiting for them to accept. You'll be redirected to the room once they do.`);
+      // Poll for acceptance and redirect
+      pollForAcceptance(data.session_id);
+    } else {
+      showRequestToast('Could not send request', data.error || 'Please try again.', true);
+    }
+  } catch (e) {
+    showRequestToast('Error', 'Network error. Please try again.', true);
+  }
+}
+
+function pollForAcceptance(sessionId) {
+  let attempts = 0;
+  const interval = setInterval(async () => {
+    attempts++;
+    if (attempts > 60) { clearInterval(interval); return; } // stop after 5 min
+    try {
+      const res = await apiFetch(`/api/recordings/${sessionId}/`);
+      const data = await res.json();
+      if (['accepted', 'in_progress'].includes(data.status)) {
+        clearInterval(interval);
+        showRequestToast('Partner accepted! Entering recording room...', '');
+        setTimeout(() => { window.location.href = `/recordings/${sessionId}/`; }, 1500);
+      }
+    } catch (e) {}
+  }, 5000); // check every 5s
+}
+
+function showRequestToast(title, msg, isError = false) {
+  const toast = document.getElementById('request-toast');
+  document.getElementById('toast-title').textContent = title;
+  document.getElementById('toast-msg').textContent = msg;
+  toast.classList.remove('hidden');
+  if (isError) {
+    toast.classList.add('border-red-500/30');
+    toast.classList.remove('border-green-500/30');
+  }
+  setTimeout(() => toast.classList.add('hidden'), 5000);
+}
+
+function refreshPartners() {
+  if (currentJobId) {
+    document.getElementById('partner-loading').classList.remove('hidden');
+    document.getElementById('partner-list').innerHTML = '';
+    loadPartners(currentJobId);
+  }
+}
+
+// Close modal on backdrop click
+document.getElementById('partner-modal').addEventListener('click', function(e) {
+  if (e.target === this) closePartnerModal();
+});
+
+// ─── Jobs Loading ───────────────────────────────────────────────
+async function loadMyJobs() {
+  try {
+    const res = await apiFetch('/api/marketplace/applications/');
+    const data = await res.json();
+    const applications = data.results || data;
+    processApplications(applications);
+  } catch (e) {
+    console.error('Failed to load my jobs:', e);
+  }
+}
+
+function processApplications(applications) {
+  TABS.forEach(tab => {
+    const statuses = STATUS_MAP[tab];
+    const filtered = applications.filter(a => statuses.includes(a.status));
+    MY_JOBS_DATA[tab] = filtered;
+
+    const badge = document.querySelector(`.count-badge-${tab}`);
+    if (badge) badge.textContent = filtered.length;
+
+    renderTab(tab, filtered);
+  });
+}
+
+function renderTab(tab, applications) {
+  const container = document.getElementById(`jobs-list-${tab}`);
+  if (!container) return;
+
+  if (!applications.length) {
+    container.innerHTML = `
+      <div class="flex flex-col items-center justify-center py-16 text-center">
+        <div class="w-16 h-16 bg-gray-800 rounded-2xl flex items-center justify-center mx-auto mb-4">
+          <i class="fas fa-inbox text-gray-600 text-2xl"></i>
+        </div>
+        <p class="text-gray-500 font-medium">No jobs here yet</p>
+        <a href="/jobs/" class="mt-3 text-sm text-green-400 hover:text-green-300">Browse available jobs →</a>
+      </div>`;
+    return;
+  }
+
+  const tpl = document.getElementById('job-card-tpl');
+  container.innerHTML = '';
+  applications.forEach(app => {
+    const card = tpl.content.cloneNode(true);
+    const el = card.querySelector('.job-card');
+
+    const sb = el.querySelector('.status-badge');
+    sb.textContent = app.status.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+    sb.className += ' ' + (STATUS_COLORS[app.status] || 'bg-gray-500/20 text-gray-400');
+
+    el.querySelector('.category-name').textContent = app.job?.category_detail?.name || '';
+    el.querySelector('.job-title').textContent = app.job?.title || '—';
+    el.querySelector('.job-recruiter').textContent = app.job?.recruiter?.full_name ? `by ${app.job.recruiter.full_name}` : '';
+
+    const pm = app.job?.payment_model;
+    let salaryText = '';
+    if (pm === 'fixed') salaryText = `₹${app.job.fixed_amount}`;
+    else if (pm === 'per_minute') salaryText = `₹${app.job.per_minute_rate}/min`;
+    else if (pm === 'per_hour') salaryText = `₹${app.job.per_hour_rate}/hr`;
+    else if (pm === 'per_task') salaryText = `₹${app.job.per_task_rate}/task`;
+    else if (pm === 'per_submission') salaryText = `₹${app.job.per_submission_rate}/submit`;
+    el.querySelector('.salary').textContent = salaryText;
+
+    const d = new Date(app.applied_at);
+    el.querySelector('.applied-date').textContent = `Applied ${d.toLocaleDateString('en-IN', {day:'numeric', month:'short'})}`;
+
+    if (app.job?.is_trending) el.querySelector('.trending-badge').classList.remove('hidden');
+
+    const pct = app.progress_percent || 0;
+    el.querySelector('.progress-pct').textContent = `${pct}%`;
+    el.querySelector('.progress-bar').style.width = `${pct}%`;
+
+    el.querySelector('.view-job-btn').href = `/jobs/${app.job?.job_id}/`;
+
+    // Audio job badge + Find Partner button
+    const isAudioJob = app.job?.submission_type === 'audio_upload';
+    if (isAudioJob) {
+      el.querySelector('.audio-badge').classList.remove('hidden');
+    }
+
+    if (['assigned', 'approved'].includes(app.status) && isAudioJob) {
+      const fpBtn = el.querySelector('.find-partner-btn');
+      fpBtn.classList.remove('hidden');
+      fpBtn.dataset.jobId = app.job.id;
+      fpBtn.onclick = () => openPartnerPicker(app.job.id, app.job.title);
+    } else if (['assigned', 'approved'].includes(app.status) && app.job?.submission_type === 'file_upload') {
+      const uploadBtn = el.querySelector('.upload-btn');
+      uploadBtn.classList.remove('hidden');
+      uploadBtn.onclick = () => window.location.href = `/recordings/?job=${app.job.job_id}`;
+    }
+
+    if (['payment_approved', 'completed'].includes(app.status) && app.creator_payout_amount > 0) {
+      const pb = el.querySelector('.payment-badge');
+      pb.classList.remove('hidden');
+      pb.textContent = `₹${app.creator_payout_amount} earned`;
+      pb.className += ' bg-green-500/20 text-green-400 border border-green-500/30';
+    }
+
+    container.appendChild(card);
+  });
+}
+
+function switchTab(tab) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
+  document.querySelectorAll('.tab-btn').forEach(b => {
+    b.className = b.className
+      .replace('bg-green-500/20 border-green-500/50 text-green-400', '')
+      + ' bg-gray-800 border-gray-700 text-gray-400 hover:text-gray-200';
+  });
+  const panel = document.getElementById(`panel-${tab}`);
+  if (panel) panel.classList.remove('hidden');
+  const btn = document.getElementById(`tab-${tab}`);
+  if (btn) {
+    btn.className = btn.className
+      .replace('bg-gray-800 border-gray-700 text-gray-400 hover:text-gray-200', '')
+      + ' bg-green-500/20 border-green-500/50 text-green-400';
+  }
+}
+
+document.addEventListener('DOMContentLoaded', loadMyJobs);
+</script>
+{% endblock %}

@@ -82,6 +82,15 @@ class RecordingSession(TimestampedModel):
     earnings_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     per_minute_rate_used = models.DecimalField(max_digits=8, decimal_places=2, default=0)
 
+    # ─── Job link ─────────────────────────────────────────────
+    job_application = models.ForeignKey(
+        "marketplace.JobApplication",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="recording_sessions",
+    )
+
     # ─── Metadata ─────────────────────────────────────────────
     metadata = models.JSONField(default=dict, blank=True)
     room_name = models.CharField(max_length=100, blank=True)

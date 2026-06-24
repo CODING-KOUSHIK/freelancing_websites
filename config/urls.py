@@ -2,6 +2,7 @@
 Root URL Configuration
 AI Voice Data Marketplace
 """
+from django.contrib import admin as django_admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
@@ -12,8 +13,11 @@ from drf_spectacular.views import (
 )
 
 urlpatterns = [
-    # Custom portal
-    path("admin/", include("apps.marketplace.portal_urls")),
+    # ✅ Django Admin (Jazzmin) — Full admin panel with actions, bulk edit, etc.
+    path("admin/", django_admin.site.urls),
+
+    # Custom portal (renamed from /admin/ to /portal/)
+    path("portal/", include("apps.marketplace.portal_urls")),
 
     # Frontend pages
     path("", include("apps.marketplace.public_urls")),
@@ -24,6 +28,17 @@ urlpatterns = [
     path("wallet/", include("apps.wallet.urls")),
     path("support/", include("apps.support.urls")),
     path("leaderboard/", include("apps.core.leaderboard_urls")),
+
+    # My Jobs
+    path("my-jobs/", __import__("apps.marketplace.template_views", fromlist=["my_jobs_page"]).my_jobs_page, name="my-jobs"),
+
+    # Invite / Referral system
+    path("invite/", __import__("apps.accounts.template_views", fromlist=["invite_page"]).invite_page, name="invite"),
+    path(
+        "invite/<str:code>/",
+        __import__("apps.accounts.template_views", fromlist=["referral_signup_redirect"]).referral_signup_redirect,
+        name="referral-signup",
+    ),
 
     # Session auth helpers
     path("session-login/", __import__("apps.accounts.template_views", fromlist=["session_login"]).session_login, name="session-login"),

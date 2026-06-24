@@ -16,18 +16,23 @@ class OnlineUsersView(APIView):
 
     def get(self, request):
         limit = getattr(settings, "MAX_ONLINE_USERS_DISPLAY", 10)
+        # ✅ FIXED: Always exclude the requesting user from partner list
         presences = (
             UserPresence.objects
             .filter(is_online=True)
+            .exclude(user=request.user)          # Never show yourself
             .select_related("user")
-            .order_by("-last_seen")[:limit]
+            .order_by("?")[:limit]               # Randomize every refresh
         )
         users = [p.user for p in presences]
+        total_online = UserPresence.objects.filter(is_online=True).count()
         serializer = PublicUserSerializer(users, many=True, context={"request": request})
         return Response({
             "count": len(users),
+            "total_online": total_online,        # Show total without self
             "users": serializer.data,
         })
+
 
 
 class UserSearchView(APIView):

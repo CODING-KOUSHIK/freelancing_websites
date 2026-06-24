@@ -69,22 +69,28 @@ class MarketplaceRepository:
             .order_by("-total_earned")[:10]
         )
         top_recruiters = (
-            JobPosting.objects.filter(status="published")
-            .values("recruiter__id", "recruiter__full_name", "recruiter__email")
+            CustomUser.objects.filter(posted_jobs__status="published")
             .annotate(
-                jobs=Count("id", distinct=True),
-                applications=Count("applications", distinct=True),
-                completed=Count("applications", filter=Q(applications__status="completed"), distinct=True),
+                jobs=Count("posted_jobs", distinct=True),
+                applications=Count("posted_jobs__applications", distinct=True),
+                completed=Count(
+                    "posted_jobs__applications",
+                    filter=Q(posted_jobs__applications__status="completed"),
+                    distinct=True,
+                ),
             )
             .order_by("-completed", "-jobs")[:10]
         )
+
+
         top_categories = (
             MarketplaceCategory.objects.annotate(
-                jobs=Count("jobs", distinct=True),
-                applications=Count("jobs__applications", distinct=True),
+                job_count=Count("jobs", distinct=True),
+                application_count=Count("jobs__applications", distinct=True),
             )
-            .order_by("-applications", "-jobs")[:10]
+            .order_by("-application_count", "-job_count")[:10]
         )
+
         recent_jobs = self.public_jobs()[:8]
         recent_tickets = (
             SupportTicket.objects.select_related("user", "assigned_to")
@@ -117,12 +123,12 @@ class MarketplaceRepository:
             ],
             "top_recruiters": [
                 {
-                    "id": str(item["recruiter__id"]),
-                    "name": item["recruiter__full_name"],
-                    "email": item["recruiter__email"],
-                    "jobs": item["jobs"],
-                    "applications": item["applications"],
-                    "completed": item["completed"],
+                    "id": str(item.id),
+                    "name": item.full_name,
+                    "email": item.email,
+                    "jobs": item.jobs,
+                    "applications": item.applications,
+                    "completed": item.completed,
                 }
                 for item in top_recruiters
             ],
@@ -131,8 +137,8 @@ class MarketplaceRepository:
                     "id": str(item.id),
                     "name": item.name,
                     "code": item.code,
-                    "jobs": item.jobs,
-                    "applications": item.applications,
+                    "jobs": item.job_count,
+                    "applications": item.application_count,
                 }
                 for item in top_categories
             ],

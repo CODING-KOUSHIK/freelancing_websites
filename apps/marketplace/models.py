@@ -203,6 +203,8 @@ class JobPosting(TimestampedModel):
     title = models.CharField(max_length=250)
     subtitle = models.CharField(max_length=250, blank=True)
     featured_job = models.BooleanField(default=False)
+    is_trending = models.BooleanField(default=False, db_index=True)
+    trending_priority = models.PositiveIntegerField(default=0)
     priority_level = models.CharField(max_length=20, choices=PRIORITY_CHOICES, default="normal")
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="draft", db_index=True)
     short_description = models.TextField(blank=True)
@@ -598,3 +600,63 @@ class AnalyticsSnapshot(TimestampedModel):
 
     def __str__(self):
         return f"{self.scope} snapshot {self.snapshot_date}"
+
+
+class FixedTask(TimestampedModel):
+    """Internal staff task assignments created and managed by admin."""
+
+    STATUS_CHOICES = [
+        ("pending", "Pending"),
+        ("assigned", "Assigned"),
+        ("submitted", "Submitted"),
+        ("approved", "Approved"),
+        ("rejected", "Rejected"),
+    ]
+
+    PRIORITY_CHOICES = [
+        ("low", "Low"),
+        ("normal", "Normal"),
+        ("high", "High"),
+        ("urgent", "Urgent"),
+    ]
+
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    assigned_to = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="fixed_tasks",
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="created_fixed_tasks",
+    )
+    due_date = models.DateField(null=True, blank=True)
+    amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    priority = models.CharField(max_length=20, choices=PRIORITY_CHOICES, default="normal")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending", db_index=True)
+    instructions_file = models.FileField(
+        upload_to="marketplace/fixed_tasks/", null=True, blank=True
+    )
+    submission_note = models.TextField(blank=True)
+    admin_note = models.TextField(blank=True)
+    submitted_at = models.DateTimeField(null=True, blank=True)
+    approved_at = models.DateTimeField(null=True, blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        verbose_name = "Fixed Task"
+        verbose_name_plural = "Fixed Tasks"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["assigned_to", "status"]),
+            models.Index(fields=["status", "priority"]),
+        ]
+
+    def __str__(self):
+        assignee = self.assigned_to.full_name if self.assigned_to else "Unassigned"
+        return f"{self.title} → {assignee} [{self.status}]"

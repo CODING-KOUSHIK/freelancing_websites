@@ -11,7 +11,12 @@ logger = logging.getLogger(__name__)
 class RecordingConsumer(AsyncWebsocketConsumer):
     """
     Per-session WebRTC signaling consumer.
-    Handles: offer, answer, ICE candidates, recording state, disconnect recovery.
+
+    Key rules:
+    - Recording ONLY starts when BOTH users are connected (recording.ready broadcast)
+    - Either user can stop recording (recording.end)
+    - When recording ends → recording.ended broadcast → Upload button shows for BOTH
+    - No auto-start ever
     Room: recording_{session_id}
     """
 
@@ -35,26 +40,30 @@ class RecordingConsumer(AsyncWebsocketConsumer):
         await self.accept()
         logger.info("User %s connected to recording room %s", self.user.pk, self.session_id)
 
-        peer_info = await self.register_connection()
-        if peer_info["peer_connected"]:
-            await self.send(
-                text_data=json.dumps(
-                    {
-                        "type": "peer.joined",
-                        "user_id": peer_info["peer_id"],
-                        "user_name": peer_info["peer_name"],
-                    }
-                )
-            )
+        # Register this user as connected; returns whether BOTH are now connected
+        connection_info = await self.register_connection()
 
+        # Notify the room that this user joined
         await self.channel_layer.group_send(
             self.room_group,
             {
                 "type": "peer.joined",
                 "user_id": str(self.user.pk),
                 "user_name": self.user.full_name,
+                "both_connected": connection_info["both_connected"],
             },
         )
+
+        # If BOTH users are now in the room → unlock recording for everyone
+        if connection_info["both_connected"]:
+            logger.info("Both users connected in room %s — broadcasting recording.ready", self.session_id)
+            await self.channel_layer.group_send(
+                self.room_group,
+                {
+                    "type": "recording.ready",
+                    "message": "Both users connected. You can now start recording.",
+                },
+            )
 
     async def disconnect(self, close_code):
         if hasattr(self, "room_group"):
@@ -78,6 +87,7 @@ class RecordingConsumer(AsyncWebsocketConsumer):
                 "webrtc.offer": self.handle_offer,
                 "webrtc.answer": self.handle_answer,
                 "webrtc.ice_candidate": self.handle_ice,
+                "recording.start": self.handle_start_recording,
                 "recording.chunk_saved": self.handle_chunk_saved,
                 "recording.end": self.handle_end_recording,
                 "chat.message": self.handle_chat,
@@ -131,6 +141,27 @@ class RecordingConsumer(AsyncWebsocketConsumer):
             },
         )
 
+    async def handle_start_recording(self, data):
+        """Mark session as in_progress when user clicks Record button."""
+        both = await self.check_both_connected()
+        if not both:
+            # Safety check — shouldn't happen since JS only shows button after ready
+            await self.send(text_data=json.dumps({
+                "type": "error",
+                "message": "Cannot start — waiting for partner to connect.",
+            }))
+            return
+
+        await self.mark_session_started()
+        await self.channel_layer.group_send(
+            self.room_group,
+            {
+                "type": "recording.started",
+                "started_by": str(self.user.pk),
+                "started_at": timezone.now().isoformat(),
+            },
+        )
+
     async def handle_chunk_saved(self, data):
         await self.update_session_metadata({
             "last_chunk_index": data.get("chunk_index"),
@@ -138,16 +169,26 @@ class RecordingConsumer(AsyncWebsocketConsumer):
         })
 
     async def handle_end_recording(self, data):
-        await self.mark_session_completed()
+        """
+        Either user can stop recording.
+        Broadcast recording.ended to BOTH users → Upload button shows.
+        """
+        session = await self.mark_session_completed(data.get("duration", 0))
+
+        # Broadcast to ALL in room → both see the Upload button
         await self.channel_layer.group_send(
             self.room_group,
             {
                 "type": "recording.ended",
                 "ended_by": str(self.user.pk),
+                "ended_by_name": self.user.full_name,
                 "duration": data.get("duration", 0),
+                "session_id": self.session_id,
+                "show_upload": True,      # triggers Upload button on all clients
             },
         )
-        # Trigger earnings calculation
+
+        # Trigger earnings calculation (held pending — admin must approve)
         from apps.recordings.tasks import process_recording_earnings
         process_recording_earnings.delay(self.session_id)
 
@@ -162,10 +203,9 @@ class RecordingConsumer(AsyncWebsocketConsumer):
             },
         )
 
-    # ─── Group message type handlers ──────────────────────────
+    # ─── Group message type handlers (camelCase → snake_case via Django Channels) ──
 
     async def webrtc_signal(self, event):
-        # Forward to THIS consumer's WebSocket, only if not sender
         if event["from_user"] != str(self.user.pk):
             await self.send(text_data=json.dumps(event))
 
@@ -175,7 +215,15 @@ class RecordingConsumer(AsyncWebsocketConsumer):
     async def peer_left(self, event):
         await self.send(text_data=json.dumps(event))
 
+    async def recording_ready(self, event):
+        """Sent when both users are connected — unlocks Record button."""
+        await self.send(text_data=json.dumps(event))
+
+    async def recording_started(self, event):
+        await self.send(text_data=json.dumps(event))
+
     async def recording_ended(self, event):
+        """Sent to all when recording stops — shows Upload button."""
         await self.send(text_data=json.dumps(event))
 
     async def chat_message(self, event):
@@ -187,8 +235,13 @@ class RecordingConsumer(AsyncWebsocketConsumer):
     def get_session(self):
         from apps.recordings.models import RecordingSession
         try:
-            session = RecordingSession.objects.select_related("user_a", "user_b").get(session_id=self.session_id)
-            if str(session.user_a.pk) == str(self.user.pk) or str(session.user_b.pk) == str(self.user.pk):
+            session = RecordingSession.objects.select_related("user_a", "user_b").get(
+                session_id=self.session_id
+            )
+            if (
+                str(session.user_a_id) == str(self.user.pk) or
+                str(session.user_b_id) == str(self.user.pk)
+            ):
                 return session
             return None
         except RecordingSession.DoesNotExist:
@@ -214,37 +267,62 @@ class RecordingConsumer(AsyncWebsocketConsumer):
         session.save(update_fields=["metadata"])
 
     @database_sync_to_async
-    def mark_session_completed(self):
+    def mark_session_started(self):
         from apps.recordings.models import RecordingSession
-        RecordingSession.objects.filter(session_id=self.session_id).update(
-            status="completed",
-            ended_at=timezone.now(),
+        RecordingSession.objects.filter(
+            session_id=self.session_id, status__in=["accepted"]
+        ).update(status="in_progress", started_at=timezone.now())
+
+    @database_sync_to_async
+    def mark_session_completed(self, duration=0):
+        from apps.recordings.models import RecordingSession
+        session = RecordingSession.objects.get(session_id=self.session_id)
+        session.status = "completed"
+        session.ended_at = timezone.now()
+        if session.started_at:
+            session.duration_seconds = int(
+                (session.ended_at - session.started_at).total_seconds()
+            )
+        elif duration:
+            session.duration_seconds = int(duration)
+        session.save(update_fields=["status", "ended_at", "duration_seconds"])
+        return session
+
+    @database_sync_to_async
+    def check_both_connected(self):
+        from apps.recordings.models import RecordingSession
+        session = RecordingSession.objects.get(session_id=self.session_id)
+        metadata = session.metadata or {}
+        connected = set(metadata.get("connected_users", []))
+        return (
+            str(session.user_a_id) in connected and
+            str(session.user_b_id) in connected
         )
 
     @database_sync_to_async
     def register_connection(self):
         from apps.recordings.models import RecordingSession
-
-        session = RecordingSession.objects.select_related("user_a", "user_b").get(session_id=self.session_id)
+        session = RecordingSession.objects.select_related("user_a", "user_b").get(
+            session_id=self.session_id
+        )
         metadata = session.metadata or {}
-        connected_users = set(metadata.get("connected_users", []))
+        connected = set(metadata.get("connected_users", []))
 
-        if str(session.user_a_id) == str(self.user.pk):
-            peer = session.user_b
-        elif str(session.user_b_id) == str(self.user.pk):
-            peer = session.user_a
-        else:
-            peer = None
-        peer_connected = peer is not None and str(peer.pk) in connected_users
-
-        connected_users.add(str(self.user.pk))
-        metadata["connected_users"] = sorted(connected_users)
+        connected.add(str(self.user.pk))
+        metadata["connected_users"] = sorted(connected)
         metadata["last_connected_at"] = timezone.now().isoformat()
         session.metadata = metadata
         session.save(update_fields=["metadata"])
 
+        # Check if BOTH are now connected
+        both_connected = (
+            str(session.user_a_id) in connected and
+            str(session.user_b_id) in connected
+        )
+
+        peer = session.user_b if str(session.user_a_id) == str(self.user.pk) else session.user_a
         return {
-            "peer_connected": peer_connected,
+            "both_connected": both_connected,
             "peer_id": str(peer.pk) if peer else "",
             "peer_name": peer.full_name if peer else "Peer",
         }
@@ -252,18 +330,15 @@ class RecordingConsumer(AsyncWebsocketConsumer):
     @database_sync_to_async
     def unregister_connection(self):
         from apps.recordings.models import RecordingSession
-
         try:
             session = RecordingSession.objects.get(session_id=self.session_id)
         except RecordingSession.DoesNotExist:
             return
 
         metadata = session.metadata or {}
-        connected_users = set(metadata.get("connected_users", []))
-        user_id = str(self.user.pk)
-        if user_id in connected_users:
-            connected_users.discard(user_id)
-            metadata["connected_users"] = sorted(connected_users)
-            metadata["last_disconnected_at"] = timezone.now().isoformat()
-            session.metadata = metadata
-            session.save(update_fields=["metadata"])
+        connected = set(metadata.get("connected_users", []))
+        connected.discard(str(self.user.pk))
+        metadata["connected_users"] = sorted(connected)
+        metadata["last_disconnected_at"] = timezone.now().isoformat()
+        session.metadata = metadata
+        session.save(update_fields=["metadata"])

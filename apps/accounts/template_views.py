@@ -102,3 +102,36 @@ def session_login_after_otp(request):
         return JsonResponse({"ok": True})
     except User.DoesNotExist:
         return JsonResponse({"error": "User not found or not verified."}, status=404)
+
+
+@login_required
+def invite_page(request):
+    """Referral / invite page with share link and stats."""
+    from django.conf import settings
+    site_url = getattr(settings, "SITE_URL", "http://localhost:8000")
+    referral_url = f"{site_url}/invite/{request.user.referral_code}/"
+
+    message = f"Join me on VoiceMarket and earn money by recording your voice! Use my link: {referral_url}"
+
+    context = {
+        "referral_url": referral_url,
+        "referral_code": request.user.referral_code,
+        "whatsapp_url": f"https://wa.me/?text={message}",
+        "telegram_url": f"https://t.me/share/url?url={referral_url}&text={message}",
+        "facebook_url": f"https://www.facebook.com/sharer/sharer.php?u={referral_url}",
+        "email_url": f"mailto:?subject=Join VoiceMarket — Earn Money Recording Voice&body={message}",
+        "total_referrals": request.user.referrals.count(),
+        "active_referrals": request.user.referrals.filter(is_active=True).count(),
+        "referral_balance": request.user.wallet.referral_balance if hasattr(request.user, "wallet") else 0,
+    }
+    return render(request, "accounts/invite.html", context)
+
+
+def referral_signup_redirect(request, code):
+    """
+    Redirect to register page with referral code pre-filled.
+    Stores the code in session so it's applied on registration.
+    """
+    request.session["referral_code"] = code
+    return redirect("/register/?ref=" + code)
+

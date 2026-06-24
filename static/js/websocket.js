@@ -70,7 +70,7 @@ class WebSocketManager {
     const count = document.getElementById('online-count');
     if (!list) return;
 
-    count.textContent = users.length;
+    if (count) count.textContent = users.length;
 
     if (users.length === 0) {
       list.innerHTML = '<p class="text-xs text-gray-600 text-center py-2">No users online</p>';
@@ -78,7 +78,7 @@ class WebSocketManager {
     }
 
     list.innerHTML = users.map(u => `
-      <div class="flex items-center gap-2.5 p-2 rounded-xl hover:bg-gray-800/50 cursor-pointer transition-colors group" 
+      <div class="flex items-center gap-2.5 p-2 rounded-xl hover:bg-gray-800/50 cursor-pointer transition-colors group"
            onclick="sendRecordingRequest('${u.id}', '${u.name}')">
         <div class="relative flex-shrink-0">
           ${u.avatar
@@ -96,6 +96,56 @@ class WebSocketManager {
         </div>
       </div>
     `).join('');
+  }
+
+  async loadRecordingStats() {
+    try {
+      const res = await apiFetch('/api/recordings/stats/');
+      if (!res.ok) return;
+      const data = await res.json();
+      this.renderStatsPanel(data);
+    } catch (e) { /* silent */ }
+  }
+
+  renderStatsPanel(data) {
+    const panel = document.getElementById('recording-stats-panel');
+    if (!panel) return;
+    const p = data.personal || {};
+    const plat = data.platform || {};
+    panel.innerHTML = `
+      <div class="space-y-2">
+        <p class="text-xs text-gray-500 uppercase tracking-widest font-semibold mb-3">My Recording Stats</p>
+        <div class="grid grid-cols-3 gap-2 mb-3">
+          <div class="bg-green-500/10 rounded-xl p-2.5 text-center border border-green-500/20">
+            <p class="text-lg font-bold text-green-400">${p.completed || 0}</p>
+            <p class="text-[10px] text-gray-500">Completed</p>
+          </div>
+          <div class="bg-red-500/10 rounded-xl p-2.5 text-center border border-red-500/20">
+            <p class="text-lg font-bold text-red-400">${p.rejected || 0}</p>
+            <p class="text-[10px] text-gray-500">Rejected</p>
+          </div>
+          <div class="bg-blue-500/10 rounded-xl p-2.5 text-center border border-blue-500/20">
+            <p class="text-lg font-bold text-blue-400">${p.in_progress || 0}</p>
+            <p class="text-[10px] text-gray-500">Active</p>
+          </div>
+        </div>
+        <div class="border-t border-gray-800 pt-3">
+          <p class="text-xs text-gray-500 uppercase tracking-widest font-semibold mb-2">Platform (30d)</p>
+          <div class="flex items-center justify-between text-xs text-gray-400 mb-1">
+            <span>Success Rate</span>
+            <span class="font-bold ${plat.success_rate >= 70 ? 'text-green-400' : plat.success_rate >= 40 ? 'text-yellow-400' : 'text-red-400'}">${plat.success_rate || 0}%</span>
+          </div>
+          <div class="h-1.5 bg-gray-800 rounded-full overflow-hidden mb-2">
+            <div class="h-full bg-gradient-to-r from-green-400 to-emerald-500 rounded-full" style="width:${plat.success_rate || 0}%"></div>
+          </div>
+          <div class="flex justify-between text-[10px] text-gray-600">
+            <span>✓ ${plat.completed || 0} done</span>
+            <span>✗ ${plat.rejected || 0} rejected</span>
+            <span>● ${plat.in_progress || 0} live</span>
+          </div>
+        </div>
+      </div>
+    `;
   }
 
   /* ─── Notification WebSocket ──────────────────────────────── */
@@ -461,5 +511,10 @@ const wsManager = new WebSocketManager();
 document.addEventListener('DOMContentLoaded', () => {
   if (typeof CURRENT_USER_ID !== 'undefined') {
     wsManager.init();
+    // Load recording stats on pages that have the stats panel
+    if (document.getElementById('recording-stats-panel')) {
+      wsManager.loadRecordingStats();
+      setInterval(() => wsManager.loadRecordingStats(), 60000);
+    }
   }
 });

@@ -288,22 +288,45 @@ JAZZMIN_SETTINGS = {
     "site_logo": None,
     "welcome_sign": "Welcome to the AI Voice Data Marketplace Admin",
     "copyright": "AI Voice Data Marketplace",
-    "search_model": ["accounts.CustomUser", "recordings.RecordingSession"],
+    "search_model": [
+        "accounts.CustomUser",
+        "marketplace.JobPosting",
+        "support.SupportTicket",
+        "wallet.Withdrawal",
+    ],
     "topmenu_links": [
-        {"name": "Home", "url": "admin:index"},
-        {"name": "API Docs", "url": "/api/docs/", "new_window": True},
+        {"name": "🏠 Home", "url": "/dashboard/", "new_window": False},
+        {"name": "📋 Jobs Board", "url": "/jobs/", "new_window": False},
+        {"name": "🎫 Support Tickets", "url": "admin:support_supportticket_changelist", "new_window": False},
+        {"name": "💸 Withdrawals", "url": "admin:wallet_withdrawal_changelist", "new_window": False},
+        {"name": "📖 API Docs", "url": "/api/docs/", "new_window": True},
     ],
     "show_sidebar": True,
     "navigation_expanded": True,
     "icons": {
-        "accounts.CustomUser": "fas fa-user",
+        "accounts.CustomUser": "fas fa-users",
         "accounts.EmailOTP": "fas fa-key",
+        "marketplace.JobPosting": "fas fa-briefcase",
+        "marketplace.JobApplication": "fas fa-file-alt",
+        "marketplace.JobSubmission": "fas fa-upload",
+        "marketplace.FixedTask": "fas fa-tasks",
+        "marketplace.MarketplaceCategory": "fas fa-th-large",
+        "marketplace.MarketplaceProfile": "fas fa-id-card",
+        "marketplace.DynamicSetting": "fas fa-sliders-h",
+        "marketplace.NotificationTemplate": "fas fa-envelope-open",
+        "marketplace.AnalyticsSnapshot": "fas fa-chart-bar",
         "recordings.RecordingSession": "fas fa-microphone",
         "wallet.Wallet": "fas fa-wallet",
-        "wallet.Withdrawal": "fas fa-money-bill",
+        "wallet.Transaction": "fas fa-exchange-alt",
+        "wallet.Withdrawal": "fas fa-money-bill-wave",
+        "wallet.EarningRate": "fas fa-percentage",
+        "wallet.BonusCampaign": "fas fa-gift",
+        "wallet.RechargeOrder": "fas fa-mobile-alt",
         "support.SupportTicket": "fas fa-ticket-alt",
+        "support.TicketReply": "fas fa-reply",
         "notifications.Notification": "fas fa-bell",
         "core.AuditLog": "fas fa-history",
+        "presence.UserPresence": "fas fa-circle",
     },
     "default_icon_parents": "fas fa-folder",
     "default_icon_children": "fas fa-dot-circle",
@@ -348,3 +371,23 @@ JAZZMIN_UI_TWEAKS = {
         "success": "btn-success",
     },
 }
+
+# ─── Security Headers ────────────────────────────────────────
+SECURE_BROWSER_XSS_FILTER = True
+SECURE_CONTENT_TYPE_NOSNIFF = True
+X_FRAME_OPTIONS = "DENY"
+SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"
+CSRF_COOKIE_HTTPONLY = False       # Keep False — needed by JS
+CSRF_COOKIE_SAMESITE = "Lax"
+SESSION_COOKIE_SAMESITE = "Lax"
+SESSION_COOKIE_HTTPONLY = True
+
+# ─── Rate Limiting (Axes) ─────────────────────────────────────
+AXES_ENABLED = True
+AXES_FAILURE_LIMIT = 5
+AXES_COOLOFF_TIME = timedelta(minutes=15)
+
+# ─── Google Drive Folder ─────────────────────────────────────
+# Parent folder: https://drive.google.com/drive/folders/1TdTYjqpqXLGXwkyIOPVlIbC0sX8YKeT3
+GOOGLE_DRIVE_FOLDER_ID = env("GOOGLE_DRIVE_FOLDER_ID", default="1TdTYjqpqXLGXwkyIOPVlIbC0sX8YKeT3")
+

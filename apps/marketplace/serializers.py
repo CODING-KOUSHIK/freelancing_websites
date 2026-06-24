@@ -155,8 +155,36 @@ class JobSubmissionSerializer(serializers.ModelSerializer):
 
 class JobApplicationSerializer(serializers.ModelSerializer):
     applicant = CompactUserSerializer(read_only=True)
+    job = serializers.SerializerMethodField()
     submissions = JobSubmissionSerializer(many=True, read_only=True)
     progress_percent = serializers.ReadOnlyField()
+
+    def get_job(self, obj):
+        """Return compact job info including integer id needed by partner picker."""
+        job = obj.job
+        if not job:
+            return None
+        return {
+            "id": job.pk,
+            "job_id": job.job_id,
+            "title": job.title,
+            "submission_type": job.submission_type,
+            "payment_model": job.payment_model,
+            "fixed_amount": str(job.fixed_amount),
+            "per_minute_rate": str(job.per_minute_rate),
+            "per_hour_rate": str(job.per_hour_rate),
+            "per_task_rate": str(job.per_task_rate),
+            "per_submission_rate": str(job.per_submission_rate),
+            "is_trending": job.is_trending,
+            "is_open": job.is_open,
+            "category_detail": {
+                "name": job.category.name if job.category else "",
+                "code": job.category.code if job.category else "",
+            },
+            "recruiter": {
+                "full_name": job.recruiter.full_name if job.recruiter else "",
+            },
+        }
 
     class Meta:
         model = JobApplication
@@ -217,6 +245,7 @@ class JobPostingSerializer(serializers.ModelSerializer):
     class Meta:
         model = JobPosting
         fields = [
+            "id",
             "job_id",
             "recruiter",
             "category",
