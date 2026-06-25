@@ -225,6 +225,16 @@ class WebSocketManager {
         }
       }
     }
+
+    if (data.notification_type === 'recording_cancelled') {
+      // Partner cancelled — redirect to dashboard immediately
+      showToast('Session Cancelled', data.message || 'The recording session was cancelled.', 'warning');
+      const redirectTo = (data.payload && data.payload.redirect) || '/';
+      // Give user 2 seconds to see the toast, then redirect
+      setTimeout(() => {
+        window.location.href = redirectTo;
+      }, 2000);
+    }
   }
 
   showRecordingPopup(data) {
