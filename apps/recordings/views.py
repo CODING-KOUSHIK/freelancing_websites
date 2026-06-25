@@ -635,3 +635,23 @@ class RecordingStatsView(APIView):
             "platform": platform,
         })
 
+
+class SessionStatusView(APIView):
+    """Simple polling endpoint — returns session status. Used by Jitsi room to detect cancellation."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, session_id):
+        from django.db.models import Q as DQ
+        try:
+            session = RecordingSession.objects.only("status", "started_at", "ended_at").get(
+                DQ(user_a=request.user) | DQ(user_b=request.user),
+                session_id=session_id,
+            )
+        except RecordingSession.DoesNotExist:
+            return Response({"error": "Not found."}, status=404)
+
+        return Response({
+            "status": session.status,
+            "started_at": session.started_at.isoformat() if session.started_at else None,
+            "ended_at": session.ended_at.isoformat() if session.ended_at else None,
+        })

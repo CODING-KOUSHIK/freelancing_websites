@@ -8,9 +8,11 @@ urlpatterns = [
     path("<uuid:session_id>/accept/", views.AcceptRecordingRequestView.as_view(), name="api-recording-accept"),
     path("<uuid:session_id>/reject/", views.RejectRecordingRequestView.as_view(), name="api-recording-reject"),
     path("<uuid:session_id>/cancel/", views.CancelSessionView.as_view(), name="api-recording-cancel"),
+    path("<uuid:session_id>/status/", views.SessionStatusView.as_view(), name="api-recording-status"),
     path("<uuid:session_id>/start/", views.StartRecordingView.as_view(), name="api-recording-start"),
     path("<uuid:session_id>/end/", views.EndRecordingView.as_view(), name="api-recording-end"),
-    path("<uuid:session_id>/chunk/", views.UploadChunkView.as_view(), name="api-recording-chunk"),
+    path("<uuid:session_id>/upload-chunk/", views.UploadChunkView.as_view(), name="api-recording-chunk"),
+    path("<uuid:session_id>/chunk/", views.UploadChunkView.as_view(), name="api-recording-chunk-alt"),
 
     # Partner picker — users approved for the same job who are online
     path("partners/<int:job_id>/", views.AvailablePartnersView.as_view(), name="api-recording-partners"),

@@ -1,39 +1,314 @@
 /**
- * recording.js — Single-WebSocket recording room controller
+ * recording.js — Jitsi Meet + MediaRecorder
  *
- * Features:
- *  - Single WS for signaling + room control
- *  - Network quality monitor (RTT, packet loss, jitter) via WebRTC stats API
- *  - Auto-captures browser recording → uploads on button click (no file picker needed)
- *  - Session report card after recording ends
- *  - Cancel/leave at any time
+ * Audio room powered by Jitsi Meet (free, no account, no config).
+ * Local recording via MediaRecorder API.
+ * No WebSocket / WebRTC complexity.
  */
 
-// ─── State ──────────────────────────────────────────────────────
-let ws = null, wsRetries = 0;
-const MAX_WS_RETRIES = 10;
-
+// ─── State ───────────────────────────────────────────────────────
+let jitsiApi     = null;
 let mediaRecorder = null;
 let recordedChunks = [];
-let capturedBlob = null;
-let timerInterval = null, timerSeconds = 0;
-let isMuted = false, isSpeakerOff = false;
-let currentRating = 0;
-let currentState = 'connecting';
-let levelsInterval = null;
-let netStatsInterval = null;
+let capturedBlob  = null;
+let timerInterval = null;
+let timerSeconds  = 0;
+let isRecording   = false;
+let pollInterval  = null;
+let currentState  = 'connecting';
 
-// Network stats accumulator
-let netSamples = [];
-let latestRtt = null, latestLoss = null, latestJitter = null;
+// ─── Init ────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  if (typeof JitsiMeetExternalAPI !== 'undefined') {
+    initJitsi();
+  } else {
+    showBanner('⚠️ Audio room failed to load. Please refresh the page.', 'error');
+    showConnectError();
+  }
+  startPolling();
+});
 
-// ─── Utility ────────────────────────────────────────────────────
-function getCookie(n) {
-  const v = `; ${document.cookie}`;
-  const p = v.split(`; ${n}=`);
-  return p.length === 2 ? p.pop().split(';').shift() : '';
+// ─── Jitsi ───────────────────────────────────────────────────────
+function initJitsi() {
+  // Use first 16 chars of session_id as room name (unique enough)
+  const roomName = 'vm' + SESSION_ID.replace(/-/g, '').substring(0, 14);
+
+  const options = {
+    roomName,
+    width: '100%',
+    height: 300,
+    parentNode: document.getElementById('jitsi-container'),
+    configOverwrite: {
+      startWithVideoMuted:   true,
+      startWithAudioMuted:   false,
+      disableDeepLinking:    true,
+      prejoinPageEnabled:    false,
+      enableClosePage:       false,
+      disableInviteFunctions: true,
+      enableWelcomePage:     false,
+      requireDisplayName:    false,
+      startAudioOnly:        true,
+      disableSimulcast:      true,
+      enableP2P:             true,
+      p2p: { enabled: true, stunServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+      ]},
+    },
+    interfaceConfigOverwrite: {
+      TOOLBAR_BUTTONS: ['microphone', 'hangup', 'raisehand'],
+      SHOW_CHROME_EXTENSION_BANNER:     false,
+      DEFAULT_REMOTE_DISPLAY_NAME:      'Partner',
+      HIDE_INVITE_MORE_HEADER:          true,
+      DISABLE_JOIN_LEAVE_NOTIFICATIONS: false,
+    },
+    userInfo: { displayName: CURRENT_USER_NAME },
+  };
+
+  jitsiApi = new JitsiMeetExternalAPI('meet.jit.si', options);
+
+  jitsiApi.on('videoConferenceJoined', () => {
+    console.log('[Jitsi] Joined room ✔');
+    showState('waiting');
+    setStatusBadge('waiting', 'Waiting for partner...');
+  });
+
+  jitsiApi.on('participantJoined', (p) => {
+    console.log('[Jitsi] Partner joined:', p.displayName);
+    showState('ready');
+    setStatusBadge('ready', '✅ Both Connected!');
+    showBanner('🎙 Partner joined! You can now start recording.', 'success');
+  });
+
+  jitsiApi.on('participantLeft', () => {
+    if (!isRecording) {
+      showState('waiting');
+      setStatusBadge('waiting', 'Waiting for partner...');
+      showBanner('⚠️ Partner left the room.', 'warning');
+    }
+  });
+
+  jitsiApi.on('videoConferenceLeft', () => {
+    doLeave();
+  });
+
+  // After 20s in 'connecting', show a fallback help message
+  setTimeout(() => {
+    if (currentState === 'connecting') {
+      showConnectError();
+    }
+  }, 20000);
 }
 
+function showConnectError() {
+  const el = document.getElementById('state-connecting');
+  if (el) {
+    el.innerHTML = `
+      <div class="bg-gray-900 border border-red-800/50 rounded-3xl p-10 text-center">
+        <div class="text-4xl mb-4">⚠️</div>
+        <h2 class="text-xl font-bold mb-2 text-red-400">Room failed to load</h2>
+        <p class="text-gray-400 text-sm mb-6">The audio room could not start.<br>Check your internet connection and allow microphone access.</p>
+        <button onclick="location.reload()" class="px-8 py-3 bg-purple-600 hover:bg-purple-500 text-white font-semibold rounded-xl mr-3">
+          🔄 Reload
+        </button>
+        <button onclick="doLeave()" class="px-6 py-3 bg-gray-800 hover:bg-gray-700 text-gray-400 rounded-xl">
+          ✕ Cancel
+        </button>
+      </div>
+    `;
+  }
+}
+
+// ─── Recording ───────────────────────────────────────────────────
+async function startRecording() {
+  if (isRecording) return;
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        sampleRate: 48000,
+        channelCount: 1,
+      },
+      video: false,
+    });
+
+    recordedChunks = [];
+    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+      ? 'audio/webm;codecs=opus'
+      : 'audio/webm';
+
+    mediaRecorder = new MediaRecorder(stream, { mimeType });
+
+    mediaRecorder.ondataavailable = (e) => {
+      if (e.data && e.data.size > 0) recordedChunks.push(e.data);
+    };
+
+    mediaRecorder.onstop = () => {
+      capturedBlob = new Blob(recordedChunks, { type: mimeType });
+      stream.getTracks().forEach(t => t.stop());
+      showState('ended');
+      setStatusBadge('ended', 'Session Complete');
+      updateEndedStats();
+    };
+
+    mediaRecorder.start(1000); // chunk every 1s
+    isRecording = true;
+    showState('recording');
+    setStatusBadge('recording', '🔴 Recording...');
+    startTimer();
+
+    // Notify server
+    apiFetch(`/api/recordings/${SESSION_ID}/start/`, { method: 'POST' }).catch(() => {});
+    document.getElementById('leave-btn-text').textContent = 'Stop & Leave';
+
+  } catch (err) {
+    console.error('[Mic] Error:', err);
+    if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+      showBanner('❌ Microphone access denied. Click the 🎤 icon in your browser address bar and allow microphone.', 'error');
+    } else {
+      showBanner(`⚠️ Microphone error: ${err.message}`, 'error');
+    }
+  }
+}
+
+function stopRecording() {
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    mediaRecorder.stop();
+    isRecording = false;
+    stopTimer();
+  }
+}
+
+// ─── Upload ──────────────────────────────────────────────────────
+async function uploadRecording() {
+  if (!capturedBlob) {
+    showBanner('No recording to upload.', 'warning');
+    return;
+  }
+
+  const btn = document.getElementById('upload-btn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="animate-spin mr-2">⏳</span> Uploading...'; }
+
+  try {
+    const formData = new FormData();
+    const channel = IS_INITIATOR ? 'a' : 'b';
+    const ext = capturedBlob.type.includes('webm') ? 'webm' : 'ogg';
+    formData.append('file', capturedBlob, `recording_${channel}.${ext}`);
+    formData.append('channel', channel);
+
+    const res = await fetch(`/api/recordings/${SESSION_ID}/upload-chunk/`, {
+      method: 'POST',
+      headers: { 'X-CSRFToken': getCookie('csrftoken') },
+      body: formData,
+    });
+
+    if (res.ok) {
+      if (btn) { btn.innerHTML = '✅ Uploaded'; btn.className = btn.className.replace('bg-green-600', 'bg-gray-700'); }
+      showBanner('✅ Recording uploaded successfully!', 'success');
+      // End session
+      apiFetch(`/api/recordings/${SESSION_ID}/end/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ duration: timerSeconds }),
+      }).catch(() => {});
+    } else {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'Upload failed');
+    }
+  } catch (err) {
+    console.error('[Upload] Error:', err);
+    showBanner(`Upload failed: ${err.message}. Please try again.`, 'error');
+    if (btn) { btn.disabled = false; btn.innerHTML = '☁️ Upload Recording'; }
+  }
+}
+
+// ─── Cancel / Leave ──────────────────────────────────────────────
+async function doLeave() {
+  stopRecording();
+  clearInterval(pollInterval);
+  clearInterval(timerInterval);
+
+  if (jitsiApi) {
+    try { jitsiApi.dispose(); } catch (e) {}
+    jitsiApi = null;
+  }
+
+  try {
+    await fetch(`/api/recordings/${SESSION_ID}/cancel/`, {
+      method: 'POST',
+      headers: { 'X-CSRFToken': getCookie('csrftoken'), 'Content-Type': 'application/json' },
+    });
+  } catch (e) {}
+
+  window.location.href = '/';
+}
+
+// Alias for Cancel button
+function leaveSession() { doLeave(); }
+
+// ─── Polling ─────────────────────────────────────────────────────
+function startPolling() {
+  pollInterval = setInterval(async () => {
+    try {
+      const res = await fetch(`/api/recordings/${SESSION_ID}/status/`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.status === 'rejected') {
+        clearInterval(pollInterval);
+        showBanner('Session was cancelled.', 'warning');
+        setTimeout(() => { window.location.href = '/'; }, 2000);
+      }
+    } catch (e) { /* ignore polling errors */ }
+  }, 5000);
+}
+
+// ─── State Machine ───────────────────────────────────────────────
+function showState(state) {
+  currentState = state;
+  ['connecting', 'waiting', 'ready', 'recording', 'ended'].forEach(s => {
+    const el = document.getElementById(`state-${s}`);
+    if (el) el.classList.toggle('hidden', s !== state);
+  });
+}
+
+function setStatusBadge(state, text) {
+  const cfg = {
+    connecting: 'bg-gray-700/40 text-gray-300 border-gray-600',
+    waiting:    'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
+    ready:      'bg-green-500/10 text-green-400 border-green-500/20',
+    recording:  'bg-red-500/10 text-red-400 border-red-500/20',
+    ended:      'bg-blue-500/10 text-blue-400 border-blue-500/20',
+  };
+  const badge = document.getElementById('session-status-badge');
+  const txt   = document.getElementById('status-text');
+  if (txt) txt.textContent = text;
+  if (badge && cfg[state]) {
+    badge.className = `hidden sm:inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-semibold border ${cfg[state]}`;
+  }
+}
+
+function updateEndedStats() {
+  const el = document.getElementById('ended-duration');
+  if (el) el.textContent = fmtTime(timerSeconds);
+  const sz = document.getElementById('ended-size');
+  if (sz && capturedBlob) sz.textContent = `${(capturedBlob.size / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+// ─── Timer ───────────────────────────────────────────────────────
+function startTimer() {
+  timerSeconds = 0;
+  timerInterval = setInterval(() => {
+    timerSeconds++;
+    const el = document.getElementById('timer-display');
+    if (el) el.textContent = fmtTime(timerSeconds);
+  }, 1000);
+}
+
+function stopTimer() { clearInterval(timerInterval); }
+
+// ─── Utilities ───────────────────────────────────────────────────
 function fmtTime(secs) {
   const h = Math.floor(secs / 3600);
   const m = Math.floor((secs % 3600) / 60);
@@ -41,642 +316,27 @@ function fmtTime(secs) {
   return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
 }
 
-// ─── WebSocket ───────────────────────────────────────────────────
-let wsConnectTimeout = null;
+function getCookie(n) {
+  const v = `; ${document.cookie}`;
+  const p = v.split(`; ${n}=`);
+  return p.length === 2 ? p.pop().split(';').shift() : '';
+}
 
-function connectWS() {
-  const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
-  const url = `${scheme}://${location.host}/ws/recordings/${SESSION_ID}/`;
-  console.log('[WS] Connecting to:', url);
-  ws = new WebSocket(url);
+async function apiFetch(url, opts = {}) {
+  opts.headers = { ...opts.headers, 'X-CSRFToken': getCookie('csrftoken') };
+  return fetch(url, opts);
+}
 
-  // Fail fast: 8 second timeout with retry button
-  wsConnectTimeout = setTimeout(() => {
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-      showConnectingError();
-    }
-  }, 8000);
-
-  ws.onopen = () => {
-    console.log('[WS] Connected ✔');
-    clearTimeout(wsConnectTimeout);
-    wsRetries = 0;
-    window.webRTC.setSendFn(data => sendWS(data));
-    // Mic was already requested on page load; if stream ready, go to waiting state
-    if (window._localStream) {
-      window.webRTC.init(window._localStream, IS_INITIATOR);
-      startLevelMonitor();
-      showState('waiting');
-    } else {
-      requestMic();
-    }
+function showBanner(msg, type) {
+  const colors = {
+    success: 'bg-green-900/80 text-green-300 border-green-700',
+    warning: 'bg-yellow-900/80 text-yellow-300 border-yellow-700',
+    error:   'bg-red-900/80 text-red-300 border-red-700',
+    info:    'bg-blue-900/80 text-blue-300 border-blue-700',
   };
-
-  ws.onmessage = e => {
-    try { onMsg(JSON.parse(e.data)); }
-    catch (err) { console.error('[WS] Parse error:', err); }
-  };
-
-  ws.onclose = e => {
-    console.warn('[WS] Closed:', e.code, e.reason);
-    if (e.code === 1000) return; // intentional close — don't retry
-    if (wsRetries < MAX_WS_RETRIES) {
-      const d = Math.min(1000 * Math.pow(1.5, wsRetries), 8000);
-      wsRetries++;
-      console.log(`[WS] Retry ${wsRetries}/${MAX_WS_RETRIES} in ${d}ms`);
-      setTimeout(connectWS, d);
-    } else {
-      showConnectingError();
-    }
-  };
-
-  ws.onerror = e => console.error('[WS] Error', e);
+  const toast = document.createElement('div');
+  toast.className = `fixed top-4 right-4 z-50 max-w-sm p-4 rounded-xl border ${colors[type] || colors.info} shadow-xl text-sm font-medium`;
+  toast.textContent = msg;
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 7000);
 }
-
-function showConnectingError() {
-  const el = document.getElementById('state-connecting');
-  if (el) el.innerHTML = `
-    <div class="bg-gray-900 border border-red-800/50 rounded-3xl p-10 text-center">
-      <div class="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
-        <i class="fas fa-exclamation-triangle text-red-400 text-2xl"></i>
-      </div>
-      <h2 class="text-xl font-bold mb-2 text-red-400">Connection Failed</h2>
-      <p class="text-gray-400 text-sm mb-6">Could not connect to the recording room.<br>Check your internet connection and try again.</p>
-      <button onclick="retryConnect()" class="px-8 py-3 bg-green-600 hover:bg-green-500 text-white font-semibold rounded-xl transition-all mr-3">
-        <i class="fas fa-redo mr-2"></i>Retry
-      </button>
-      <button onclick="doLeave()" class="px-6 py-3 bg-gray-800 hover:bg-gray-700 text-gray-400 rounded-xl transition-all">
-        <i class="fas fa-times mr-2"></i>Cancel
-      </button>
-    </div>
-  `;
-}
-
-function retryConnect() {
-  wsRetries = 0;
-  // Restore connecting state
-  const el = document.getElementById('state-connecting');
-  if (el) el.innerHTML = `
-    <div class="bg-gray-900 border border-gray-800 rounded-3xl p-10 text-center">
-      <div class="w-16 h-16 bg-purple-500/10 rounded-full flex items-center justify-center mx-auto mb-4 ring-2 ring-purple-500/30">
-        <div class="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full animate-spin"></div>
-      </div>
-      <h2 class="text-xl font-bold mb-2">Connecting to Room...</h2>
-      <p class="text-gray-400 text-sm mb-1">Joining room and requesting microphone access.</p>
-      <p class="text-gray-600 text-xs">Please allow microphone permission when prompted.</p>
-    </div>
-  `;
-  connectWS();
-}
-
-function sendWS(data) {
-  if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(data));
-}
-
-// ─── Microphone ──────────────────────────────────────────────────
-// Request mic EARLY on page load so the permission prompt appears immediately
-async function earlyMicRequest() {
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    console.warn('[Mic] getUserMedia not available');
-    return;
-  }
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 48000, channelCount: 1 },
-      video: false,
-    });
-    window._localStream = stream;  // store for when WS opens
-    console.log('[Mic] Permission granted early ✔');
-    const la = document.getElementById('local-audio');
-    if (la) la.srcObject = stream;
-  } catch (err) {
-    console.warn('[Mic] Early request failed:', err.name);
-    if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-      showBanner("❌ Microphone access denied. Click the 🎤 icon in your browser address bar to allow microphone, then refresh the page.", 'error');
-    }
-  }
-}
-
-function startLevelMonitor() {
-  levelsInterval = setInterval(() => {
-    const a = document.getElementById('level-a');
-    const b = document.getElementById('level-b');
-    if (a) a.style.width = window.webRTC.getLocalLevel() + '%';
-    if (b) b.style.width = window.webRTC.getRemoteLevel() + '%';
-  }, 100);
-}
-
-async function requestMic() {
-  // Re-use already-acquired stream if available
-  if (window._localStream) {
-    window.webRTC.init(window._localStream, IS_INITIATOR);
-    startLevelMonitor();
-    showState('waiting');
-    return;
-  }
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 48000, channelCount: 1 },
-      video: false,
-    });
-    window._localStream = stream;
-    const la = document.getElementById('local-audio');
-    if (la) la.srcObject = stream;
-    window.webRTC.init(stream, IS_INITIATOR);
-    startLevelMonitor();
-    showState('waiting');
-  } catch (err) {
-    console.error('[Mic] Error:', err);
-    if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-      showBanner('❌ Microphone denied. Click the 🎤 icon in the browser address bar and allow microphone, then click Retry.', 'error');
-    } else {
-      showBanner(`⚠️ Microphone error: ${err.message}. Please refresh the page.`, 'error');
-    }
-  }
-}
-
-// ─── Message Handler ────────────────────────────────────────────
-function onMsg(msg) {
-  console.log('[WS] →', msg.type, msg);
-  switch (msg.type) {
-
-    case 'peer.joined':
-      if (msg.user_id !== String(CURRENT_USER_ID)) {
-        window.webRTC.onPeerJoined();
-      }
-      if (msg.both_connected) showState('ready');
-      break;
-
-    case 'peer.left':
-      if (msg.user_id !== String(CURRENT_USER_ID)) {
-        if (currentState === 'recording') {
-          showBanner(`${msg.user_name || 'Partner'} disconnected. Recording continues.`, 'warning');
-        } else if (currentState === 'waiting' || currentState === 'ready') {
-          showState('waiting');
-        }
-      }
-      break;
-
-    case 'session.cancelled':
-      // Either user cancelled — redirect both to dashboard immediately
-      const who = msg.cancelled_by === String(CURRENT_USER_ID) ? 'You' : (msg.cancelled_by_name || 'Your partner');
-      showBanner(`${who} cancelled the session. Redirecting...`, 'warning');
-      stopTimer();
-      stopLocalRecording();
-      stopNetworkMonitor();
-      window.webRTC.cleanup();
-      if (ws?.readyState === WebSocket.OPEN) ws.close(1000, 'Session cancelled');
-      setTimeout(() => { window.location.href = '/'; }, 2000);
-      break;
-
-    case 'recording.ready':
-      showState('ready');
-      break;
-
-    case 'recording.started':
-      showState('recording');
-      startTimer();
-      startLocalRecording();
-      startNetworkMonitor();
-      startWaveform();
-      break;
-
-    case 'recording.ended':
-      stopTimer();
-      stopLocalRecording();
-      stopNetworkMonitor();
-      buildSessionReport(msg);
-      showState('ended');
-      setTimeout(() => showRatingModal(), 3000);
-      break;
-
-    case 'webrtc.signal':
-      if (msg.from_user !== String(CURRENT_USER_ID)) window.webRTC.handleSignal(msg);
-      break;
-
-    case 'error':
-      showBanner(msg.message || 'An error occurred', 'error');
-      break;
-  }
-}
-
-// ─── State Machine ───────────────────────────────────────────────
-function showState(state) {
-  currentState = state;
-  ['connecting','waiting','ready','recording','ended'].forEach(s => {
-    const el = document.getElementById(`state-${s}`);
-    if (el) el.classList.toggle('hidden', s !== state);
-  });
-
-  const cfg = {
-    connecting: { text:'Connecting...', cls:'bg-gray-700/40 text-gray-300 border-gray-600' },
-    waiting:    { text:'Waiting for partner...', cls:'bg-yellow-500/10 text-yellow-400 border-yellow-500/20' },
-    ready:      { text:'✅ Both Connected!', cls:'bg-green-500/10 text-green-400 border-green-500/20' },
-    recording:  { text:'🔴 Recording...', cls:'bg-red-500/10 text-red-400 border-red-500/20' },
-    ended:      { text:'Session Complete', cls:'bg-blue-500/10 text-blue-400 border-blue-500/20' },
-  };
-  const badge = document.getElementById('session-status-badge');
-  const txt = document.getElementById('status-text');
-  if (badge && txt && cfg[state]) {
-    txt.textContent = cfg[state].text;
-    badge.className = `hidden sm:inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-semibold border ${cfg[state].cls}`;
-  }
-}
-
-// ─── Recording ──────────────────────────────────────────────────
-function startRecording() { sendWS({ type: 'recording.start' }); }
-function stopRecording()  { sendWS({ type: 'recording.end', duration: timerSeconds }); }
-
-function startLocalRecording() {
-  const stream = window.webRTC.localStream;
-  if (!stream) { console.warn('[Recorder] No stream'); return; }
-  try {
-    recordedChunks = [];
-    capturedBlob = null;
-    const opts = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-      ? { mimeType: 'audio/webm;codecs=opus' }
-      : {};
-    mediaRecorder = new MediaRecorder(stream, opts);
-    mediaRecorder.ondataavailable = e => { if (e.data?.size > 0) recordedChunks.push(e.data); };
-    mediaRecorder.onstop = () => {
-      if (recordedChunks.length > 0) {
-        capturedBlob = new Blob(recordedChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
-        console.log('[Recorder] Captured', (capturedBlob.size / 1024 / 1024).toFixed(2), 'MB');
-      }
-    };
-    mediaRecorder.start(10000);
-    console.log('[Recorder] Started');
-  } catch (e) { console.error('[Recorder] Error:', e); }
-}
-
-function stopLocalRecording() {
-  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-    mediaRecorder.stop();
-  }
-}
-
-// ─── Timer ──────────────────────────────────────────────────────
-function startTimer() {
-  timerSeconds = 0;
-  clearInterval(timerInterval);
-  timerInterval = setInterval(() => {
-    timerSeconds++;
-    const t = document.getElementById('timer');
-    const e = document.getElementById('est-earnings');
-    if (t) t.textContent = fmtTime(timerSeconds);
-    if (e) e.textContent = `₹${((timerSeconds / 60) * PER_MINUTE_RATE).toFixed(2)}`;
-  }, 1000);
-}
-function stopTimer() { clearInterval(timerInterval); }
-
-// ─── Waveform ────────────────────────────────────────────────────
-let waveAnimId = null;
-function startWaveform() {
-  const canvas = document.getElementById('waveform-canvas');
-  if (!canvas) return;
-  const ctx = canvas.getContext('2d');
-  let phase = 0;
-
-  function draw() {
-    if (currentState !== 'recording') { waveAnimId = null; return; }
-    waveAnimId = requestAnimationFrame(draw);
-    const w = canvas.width = canvas.offsetWidth;
-    const h = canvas.height;
-    ctx.fillStyle = '#020617';
-    ctx.fillRect(0, 0, w, h);
-
-    const lvl = window.webRTC.getLocalLevel() / 100;
-    const bars = 52;
-    const bw = w / bars;
-    phase += 0.04;
-
-    for (let i = 0; i < bars; i++) {
-      const amp = lvl > 0.02
-        ? (Math.sin((i / bars) * Math.PI * 3 + phase) * 0.5 + 0.5) * lvl * h * 0.75
-        : 4;
-      const x = i * bw;
-      const y = (h - amp) / 2;
-      ctx.fillStyle = i % 3 === 0 ? '#4ade80' : i % 3 === 1 ? '#34d399' : '#6ee7b7';
-      ctx.beginPath();
-      if (ctx.roundRect) ctx.roundRect(x + 2, y, bw - 4, Math.max(amp, 4), 3);
-      else ctx.rect(x + 2, y, bw - 4, Math.max(amp, 4));
-      ctx.fill();
-    }
-  }
-  draw();
-}
-
-// ─── Network Quality Monitor ────────────────────────────────────
-function startNetworkMonitor() {
-  netSamples = [];
-  netStatsInterval = setInterval(async () => {
-    const stats = await getWebRTCStats();
-    if (!stats) return;
-    latestRtt = stats.rtt;
-    latestLoss = stats.lossPercent;
-    latestJitter = stats.jitter;
-    netSamples.push(stats);
-    updateNetworkUI(stats);
-  }, 2000);
-}
-
-function stopNetworkMonitor() {
-  clearInterval(netStatsInterval);
-}
-
-async function getWebRTCStats() {
-  try {
-    const pc = window.webRTC._pc;
-    if (!pc) return null;
-    const reports = await pc.getStats();
-    let rtt = null, loss = null, jitter = null;
-
-    reports.forEach(r => {
-      if (r.type === 'remote-inbound-rtp' && r.kind === 'audio') {
-        if (r.roundTripTime != null) rtt = Math.round(r.roundTripTime * 1000); // ms
-        if (r.fractionLost != null) loss = (r.fractionLost * 100).toFixed(1);
-        if (r.jitter != null) jitter = Math.round(r.jitter * 1000); // ms
-      }
-    });
-    return { rtt, lossPercent: loss, jitter };
-  } catch (e) {
-    return null;
-  }
-}
-
-function updateNetworkUI(stats) {
-  const rttEl = document.getElementById('stat-rtt');
-  const lossEl = document.getElementById('stat-loss');
-  const jitterEl = document.getElementById('stat-jitter');
-  const qualLabel = document.getElementById('net-quality-label');
-  const qualSub = document.getElementById('net-quality-sub');
-  const bars = document.getElementById('signal-bars');
-
-  if (rttEl) rttEl.textContent = stats.rtt != null ? `${stats.rtt} ms` : '—';
-  if (lossEl) lossEl.textContent = stats.lossPercent != null ? `${stats.lossPercent}%` : '—';
-  if (jitterEl) jitterEl.textContent = stats.jitter != null ? `${stats.jitter} ms` : '—';
-
-  const rtt = stats.rtt || 0;
-  let quality, color, subText, barFill;
-
-  if (rtt < 50 && (!stats.lossPercent || parseFloat(stats.lossPercent) < 1)) {
-    quality = 'Excellent'; color = '#4ade80'; subText = 'Low latency'; barFill = 4;
-  } else if (rtt < 150 && (!stats.lossPercent || parseFloat(stats.lossPercent) < 3)) {
-    quality = 'Good'; color = '#a3e635'; subText = 'Stable connection'; barFill = 3;
-  } else if (rtt < 300) {
-    quality = 'Fair'; color = '#fb923c'; subText = 'Some latency'; barFill = 2;
-  } else {
-    quality = 'Poor'; color = '#f87171'; subText = 'High latency'; barFill = 1;
-  }
-
-  if (qualLabel) { qualLabel.textContent = quality; qualLabel.style.color = color; }
-  if (qualSub)   qualSub.textContent = subText;
-
-  if (bars) {
-    const divs = bars.querySelectorAll('div');
-    divs.forEach((d, i) => {
-      d.style.backgroundColor = i < barFill ? color : '#374151';
-    });
-  }
-}
-
-function calcQualityScore() {
-  if (!netSamples.length) return 85; // default if no stats
-  const avgRtt = netSamples.reduce((s, n) => s + (n.rtt || 0), 0) / netSamples.length;
-  const avgLoss = netSamples.reduce((s, n) => s + parseFloat(n.lossPercent || 0), 0) / netSamples.length;
-  let score = 100;
-  if (avgRtt > 50)  score -= Math.min(30, (avgRtt - 50) / 10);
-  if (avgLoss > 1)  score -= Math.min(40, avgLoss * 8);
-  return Math.max(0, Math.min(100, Math.round(score)));
-}
-
-// ─── Session Report ─────────────────────────────────────────────
-function buildSessionReport(msg) {
-  const dur = msg.duration || timerSeconds;
-
-  // Duration
-  const durEl = document.getElementById('final-duration');
-  if (durEl) durEl.textContent = fmtTime(dur);
-
-  // Earnings
-  const earnEl = document.getElementById('final-earnings');
-  if (earnEl) earnEl.textContent = `₹${((dur / 60) * PER_MINUTE_RATE).toFixed(2)}`;
-
-  // Network stats
-  const avgRtt = netSamples.length
-    ? Math.round(netSamples.reduce((s, n) => s + (n.rtt || 0), 0) / netSamples.length)
-    : null;
-  const avgLoss = netSamples.length
-    ? (netSamples.reduce((s, n) => s + parseFloat(n.lossPercent || 0), 0) / netSamples.length).toFixed(1)
-    : null;
-
-  const rttEl = document.getElementById('final-rtt');
-  if (rttEl) rttEl.textContent = avgRtt != null ? `${avgRtt} ms` : '—';
-
-  const lossEl = document.getElementById('final-loss');
-  if (lossEl) lossEl.textContent = avgLoss != null ? `${avgLoss}%` : '—';
-
-  // Quality score bar
-  const score = calcQualityScore();
-  const bar = document.getElementById('quality-bar');
-  const lbl = document.getElementById('quality-score-label');
-  setTimeout(() => {
-    if (bar) {
-      const clr = score >= 80 ? 'from-green-400 to-emerald-500'
-                : score >= 60 ? 'from-yellow-400 to-orange-400'
-                : 'from-red-400 to-rose-500';
-      bar.className = `h-full bg-gradient-to-r ${clr} rounded-full transition-all duration-1000`;
-      bar.style.width = `${score}%`;
-    }
-    if (lbl) {
-      const grade = score >= 80 ? 'Excellent' : score >= 60 ? 'Good' : score >= 40 ? 'Fair' : 'Poor';
-      lbl.textContent = `${grade} (${score}/100)`;
-      lbl.style.color = score >= 80 ? '#4ade80' : score >= 60 ? '#fb923c' : '#f87171';
-    }
-  }, 300);
-
-  // Ended by
-  const byEl = document.getElementById('ended-by-text');
-  if (byEl) {
-    const who = msg.ended_by === String(CURRENT_USER_ID) ? 'you' : (msg.ended_by_name || 'your partner');
-    byEl.textContent = `Session ended by ${who}`;
-  }
-}
-
-// ─── Upload ─────────────────────────────────────────────────────
-async function uploadRecording() {
-  const btn = document.getElementById('btn-upload');
-  const btnText = document.getElementById('upload-btn-text');
-  const btnIcon = document.getElementById('upload-btn-icon');
-  const progressArea = document.getElementById('upload-progress-area');
-  const progressBar = document.getElementById('upload-progress-bar');
-  const pctEl = document.getElementById('upload-pct');
-  const statusText = document.getElementById('upload-status-text');
-  const successArea = document.getElementById('upload-success-area');
-
-  // Get the recorded audio blob (auto-captured)
-  if (!capturedBlob && recordedChunks.length > 0) {
-    capturedBlob = new Blob(recordedChunks, { type: 'audio/webm' });
-  }
-
-  if (!capturedBlob || capturedBlob.size === 0) {
-    showBanner('No recording found. The session may not have captured audio properly.', 'error');
-    return;
-  }
-
-  btn.disabled = true;
-  if (btnText) btnText.textContent = 'Uploading...';
-  if (btnIcon) btnIcon.className = 'fas fa-spinner fa-spin';
-  if (progressArea) progressArea.classList.remove('hidden');
-  if (statusText) statusText.textContent = 'Preparing upload...';
-
-  const ext = capturedBlob.type.includes('webm') ? 'webm' : 'wav';
-  const file = new File([capturedBlob], `recording_${SESSION_ID.slice(0, 8)}.${ext}`, { type: capturedBlob.type });
-
-  try {
-    const formData = new FormData();
-    formData.append('audio_file', file);
-    formData.append('session_id', SESSION_ID);
-
-    await new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open('POST', `/api/recordings/${SESSION_ID}/chunk/`);
-      xhr.setRequestHeader('X-CSRFToken', getCookie('csrftoken'));
-
-      xhr.upload.onprogress = e => {
-        if (e.lengthComputable) {
-          const pct = Math.round((e.loaded / e.total) * 100);
-          if (progressBar) progressBar.style.width = `${pct}%`;
-          if (pctEl) pctEl.textContent = `${pct}%`;
-          if (statusText) statusText.textContent = pct < 30 ? 'Uploading...' : pct < 70 ? 'Sending to Drive...' : 'Almost done...';
-        }
-      };
-
-      xhr.onload = () => xhr.status < 300 ? resolve() : reject(new Error(`Server: ${xhr.status}`));
-      xhr.onerror = () => reject(new Error('Network error'));
-      xhr.send(formData);
-    });
-
-    // Success!
-    if (progressArea) progressArea.classList.add('hidden');
-    if (successArea) successArea.classList.remove('hidden');
-    if (btnText) btnText.textContent = 'Uploaded ✓';
-    if (btnIcon) btnIcon.className = 'fas fa-check';
-    btn.className = btn.className.replace('from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500', 'from-green-600 to-emerald-600');
-
-  } catch (err) {
-    console.error('[Upload] Error:', err);
-    if (progressArea) progressArea.classList.add('hidden');
-    if (statusText) { statusText.textContent = `Upload failed: ${err.message}`; progressArea.classList.remove('hidden'); }
-    if (pctEl) pctEl.textContent = '';
-    if (btnText) btnText.textContent = 'Try Again';
-    if (btnIcon) btnIcon.className = 'fas fa-redo';
-    btn.disabled = false;
-  }
-}
-
-// ─── Audio Controls ──────────────────────────────────────────────
-function toggleMute() {
-  isMuted = !isMuted;
-  window.webRTC.setMute(isMuted);
-  const icon = document.getElementById('mute-icon');
-  const lbl = document.getElementById('mute-label');
-  if (icon) icon.className = `fas ${isMuted ? 'fa-microphone-slash text-red-400' : 'fa-microphone text-green-400'} text-xl`;
-  if (lbl) lbl.textContent = isMuted ? 'Unmute' : 'Mute';
-}
-
-function toggleSpeaker() {
-  isSpeakerOff = !isSpeakerOff;
-  const audio = document.getElementById('remote-audio');
-  if (audio) audio.muted = isSpeakerOff;
-  const icon = document.getElementById('speaker-icon');
-  if (icon) icon.className = `fas ${isSpeakerOff ? 'fa-volume-mute text-red-400' : 'fa-volume-up text-blue-400'} text-xl`;
-}
-
-// ─── Cancel / Leave ──────────────────────────────────────────────
-function leaveSession() {
-  // No confirm() — browser blocks JS dialogs on HTTPS. Cancel instantly.
-  doLeave();
-}
-
-async function doLeave() {
-  // Disable cancel button immediately to prevent double-clicks
-  const btn = document.getElementById('leave-btn');
-  if (btn) { btn.disabled = true; btn.textContent = 'Leaving...'; }
-
-  clearInterval(levelsInterval);
-  clearInterval(netStatsInterval);
-  clearInterval(timerInterval);
-  clearTimeout(wsConnectTimeout);
-  if (waveAnimId) cancelAnimationFrame(waveAnimId);
-  stopLocalRecording();
-
-  try { window.webRTC.cleanup(); } catch(e) {}
-
-  // Call cancel API — marks session rejected + kicks partner out via WS
-  try {
-    await fetch(`/api/recordings/${SESSION_ID}/cancel/`, {
-      method: 'POST',
-      headers: { 'X-CSRFToken': getCookie('csrftoken'), 'Content-Type': 'application/json' },
-    });
-  } catch (e) {
-    console.warn('[Leave] Cancel API failed (proceeding anyway):', e);
-  }
-
-  try { if (ws?.readyState === WebSocket.OPEN) ws.close(1000, 'User left'); } catch(e) {}
-  window.location.href = '/';
-}
-
-// ─── Banners ────────────────────────────────────────────────────
-function showBanner(msg, type = 'info') {
-  const cls = {
-    error: 'bg-red-900/80 border-red-500/50 text-red-200',
-    warning: 'bg-yellow-900/80 border-yellow-500/50 text-yellow-200',
-    info: 'bg-blue-900/80 border-blue-500/50 text-blue-200',
-  }[type] || 'bg-gray-800 border-gray-600 text-gray-200';
-  const el = document.createElement('div');
-  el.className = `fixed top-4 left-1/2 -translate-x-1/2 z-[9999] max-w-sm w-full px-5 py-3 rounded-2xl border text-sm font-medium shadow-2xl ${cls}`;
-  el.textContent = msg;
-  document.body.appendChild(el);
-  setTimeout(() => el.remove(), 6000);
-}
-
-// ─── Rating ─────────────────────────────────────────────────────
-function showRatingModal() {
-  const m = document.getElementById('rating-modal');
-  if (m) m.classList.remove('hidden');
-}
-
-function setRating(val) {
-  currentRating = val;
-  document.querySelectorAll('.star-btn').forEach((b, i) => {
-    b.style.color = i < val ? '#facc15' : '#374151';
-  });
-}
-
-async function submitRating() {
-  const feedback = document.getElementById('rating-feedback')?.value || '';
-  if (currentRating > 0) {
-    try {
-      await fetch('/api/ratings/', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
-        body: JSON.stringify({ ratee: PARTNER_ID, session: SESSION_ID, score: currentRating, comment: feedback }),
-      });
-    } catch (e) {}
-  }
-  skipRating();
-}
-
-function skipRating() {
-  const m = document.getElementById('rating-modal');
-  if (m) m.classList.add('hidden');
-}
-
-// ─── Init ───────────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', () => {
-  // 1. Request mic permission IMMEDIATELY so user sees the browser prompt
-  earlyMicRequest();
-  // 2. Connect WebSocket in parallel
-  connectWS();
-});
