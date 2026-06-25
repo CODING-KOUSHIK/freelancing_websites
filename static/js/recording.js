@@ -152,7 +152,7 @@ async function earlyMicRequest() {
   } catch (err) {
     console.warn('[Mic] Early request failed:', err.name);
     if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-      showBanner('❌ Microphone access denied. Click the camera icon in your browser’s address bar to allow it, then refresh.', 'error');
+      showBanner("❌ Microphone access denied. Click the 🎤 icon in your browser address bar to allow microphone, then refresh the page.", 'error');
     }
   }
 }
