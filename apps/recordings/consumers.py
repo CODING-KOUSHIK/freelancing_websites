@@ -30,9 +30,10 @@ class RecordingConsumer(AsyncWebsocketConsumer):
         self.room_group = f"recording_{self.session_id}"
 
         try:
-            # ✅ Accept FIRST so browser's ws.onopen fires immediately
-            await self.channel_layer.group_add(self.room_group, self.channel_name)
+            # ✅ accept() MUST be called before any async Redis ops
+            # If group_add (Redis) is slow on free tier, it blocks the WS handshake
             await self.accept()
+            await self.channel_layer.group_add(self.room_group, self.channel_name)
 
             # Then verify user belongs to this session
             session = await self.get_session()

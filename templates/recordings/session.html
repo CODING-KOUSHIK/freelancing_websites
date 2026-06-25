@@ -325,8 +325,8 @@
   const IS_INITIATOR    = {{ is_initiator|yesno:"true,false" }};
   const PER_MINUTE_RATE = {{ per_minute_rate|default:2.5 }};
 </script>
-<script src="{% static 'js/webrtc.js' %}"></script>
-<script src="{% static 'js/recording.js' %}"></script>
+<script src="{% static 'js/webrtc.js' %}?v=4"></script>
+<script src="{% static 'js/recording.js' %}?v=4"></script>
 <script>
   // Update leave/cancel button label based on recording state
   const _stateRecEl = document.getElementById('state-recording');
