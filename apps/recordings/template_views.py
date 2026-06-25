@@ -78,13 +78,14 @@ def recording_session_page(request, session_id):
     is_initiator = str(session.user_a.pk) == str(request.user.pk)
     partner = session.user_b if is_initiator else session.user_a
 
+    # Jitsi room name — deterministic, URL-safe, unique per session
+    jitsi_room_name = "vm" + str(session.session_id).replace("-", "")[:14]
+
     context = {
         "session": session,
         "partner": partner,
         "is_initiator": is_initiator,
         "per_minute_rate": settings.DEFAULT_PER_MINUTE_RATE,
-        "turn_url": settings.TURN_SERVER_URL,
-        "turn_username": settings.TURN_SERVER_USERNAME,
-        "turn_credential": settings.TURN_SERVER_CREDENTIAL,
+        "jitsi_room_name": jitsi_room_name,
     }
     return render(request, "recordings/session.html", context)
